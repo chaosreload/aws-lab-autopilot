@@ -15,7 +15,14 @@
       },
       "ResultPath": "$.research_result",
       "Next": "CheckResearchVerdict",
-      "TimeoutSeconds": 7200
+      "TimeoutSeconds": 7200,
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "NeedsHuman",
+          "ResultPath": "$.error_info"
+        }
+      ]
     },
     "CheckResearchVerdict": {
       "Type": "Choice",
@@ -47,6 +54,13 @@
           "ErrorEquals": ["TransientError"],
           "MaxAttempts": 1
         }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "NeedsHuman",
+          "ResultPath": "$.error_info"
+        }
       ]
     },
     "Publish": {
@@ -63,7 +77,14 @@
       },
       "ResultPath": "$.publish_result",
       "Next": "CheckPublishResult",
-      "TimeoutSeconds": 7200
+      "TimeoutSeconds": 7200,
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "NeedsHuman",
+          "ResultPath": "$.error_info"
+        }
+      ]
     },
     "CheckPublishResult": {
       "Type": "Choice",
@@ -150,7 +171,7 @@
       "Resource": "arn:aws:states:::sns:publish",
       "Parameters": {
         "TopicArn": "${AlertTopic}",
-        "Message": "Task needs human review",
+        "Message.$": "States.Format('Task {} needs human review', $.task_id)",
         "Subject": "Hands-on Workflow: Human Review Required"
       },
       "Next": "Failed"

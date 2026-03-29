@@ -4,12 +4,38 @@ import json
 import logging
 import os
 
+from datetime import datetime, timezone
+
 import boto3
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 sfn = boto3.client("stepfunctions")
+dynamodb = boto3.resource("dynamodb")
+TASKS_TABLE = os.environ.get("TASKS_TABLE", "handson-tasks")
+
+AGENT_STATE_MAP = {
+    "research": "researching",
+    "execute": "executing",
+    "publish": "publishing",
+}
+
+
+def _update_task_state(task_id: str, agent_type: str):
+    new_state = AGENT_STATE_MAP.get(agent_type)
+    if not new_state or not task_id:
+        return
+    table = dynamodb.Table(TASKS_TABLE)
+    table.update_item(
+        Key={"task_id": task_id},
+        UpdateExpression="SET #s = :state, updated_at = :now",
+        ExpressionAttributeNames={"#s": "state"},
+        ExpressionAttributeValues={
+            ":state": new_state,
+            ":now": datetime.now(timezone.utc).isoformat(),
+        },
+    )
 
 MOCK_RESULTS = {
     "research": {
@@ -65,6 +91,7 @@ def handler(event, context):
         agent_type = _detect_agent_type(body)
 
         logger.info("Processing task %s as agent_type=%s", task_id, agent_type)
+        _update_task_state(task_id, agent_type)
 
         if not task_token:
             logger.error("No TaskToken found for task %s, skipping", task_id)

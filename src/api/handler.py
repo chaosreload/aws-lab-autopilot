@@ -44,8 +44,12 @@ def handler(event, context):
     path = event.get("rawPath", "")
 
     try:
-        if method == "POST" and path == "/tasks":
+        if method == "GET" and path == "/tasks":
+            return _list_tasks(event)
+        elif method == "POST" and path == "/tasks":
             return _create_task(event)
+        elif method == "POST" and path == "/tasks/batch":
+            return _create_batch(event)
         elif method == "GET" and path.startswith("/tasks/") and path.endswith("/result"):
             task_id = path.split("/")[2]
             return _get_task_result(task_id)
@@ -94,7 +98,10 @@ def _create_task(event):
         item["config_override"] = req.config_override
 
     table = _get_table()
-    table.put_item(Item=item)
+    table.put_item(
+        Item=item,
+        ConditionExpression="attribute_not_exists(task_id)",
+    )
 
     sfn_input = {
         "task_id": task_id,
@@ -103,7 +110,7 @@ def _create_task(event):
     }
     sfn.start_execution(
         stateMachineArn=STATE_MACHINE_ARN,
-        name=f"task-{task_id}",
+        name=task_id,
         input=json.dumps(sfn_input),
     )
 
@@ -118,7 +125,11 @@ def _create_task(event):
 
 def _get_task_status(task_id: str):
     table = _get_table()
-    result = table.get_item(Key={"task_id": task_id})
+    result = table.get_item(
+        Key={"task_id": task_id},
+        ProjectionExpression="task_id, #u, #s, rework_count, created_at, updated_at",
+        ExpressionAttributeNames={"#s": "state", "#u": "url"},
+    )
     item = result.get("Item")
     if not item:
         return _json_response(404, {"error": "Task not found"})
@@ -185,6 +196,75 @@ def _get_task_result(task_id: str):
         updated_at=item.get("updated_at", ""),
     )
     return _json_response(200, resp.model_dump())
+
+
+def _list_tasks(event):
+    qs = event.get("queryStringParameters") or {}
+    state_filter = qs.get("state")
+    table = _get_table()
+
+    if state_filter:
+        from boto3.dynamodb.conditions import Key as DDBKey
+        resp = table.query(
+            IndexName="state-index",
+            KeyConditionExpression=DDBKey("state").eq(state_filter),
+        )
+    else:
+        resp = table.scan()
+
+    items = resp.get("Items", [])
+    tasks = [
+        {
+            "task_id": it["task_id"],
+            "url": it.get("url", ""),
+            "state": it.get("state", "unknown"),
+            "created_at": it.get("created_at", ""),
+        }
+        for it in items
+    ]
+    return _json_response(200, {"tasks": tasks})
+
+
+def _create_batch(event):
+    body = event.get("body", "{}")
+    if event.get("isBase64Encoded"):
+        import base64
+        body = base64.b64decode(body).decode("utf-8")
+
+    data = json.loads(body)
+    urls = data.get("urls", [])
+    if not urls:
+        return _json_response(400, {"error": "urls list is required"})
+
+    table = _get_table()
+    results = []
+    for url_str in urls:
+        now = datetime.now(timezone.utc)
+        task_id = str(uuid.uuid4())
+        created_at = now.isoformat()
+
+        item = {
+            "task_id": task_id,
+            "url": url_str,
+            "state": "queued",
+            "rework_count": 0,
+            "created_at": created_at,
+            "created_date": now.strftime("%Y-%m-%d"),
+            "updated_at": created_at,
+        }
+        table.put_item(
+            Item=item,
+            ConditionExpression="attribute_not_exists(task_id)",
+        )
+
+        sfn.start_execution(
+            stateMachineArn=STATE_MACHINE_ARN,
+            name=task_id,
+            input=json.dumps({"task_id": task_id, "url": url_str, "rework_count": 0}),
+        )
+        results.append({"task_id": task_id, "state": "queued"})
+
+    return _json_response(202, {"tasks": results})
 
 
 def _delete_task(task_id: str):

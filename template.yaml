@@ -217,6 +217,15 @@ Resources:
       QueueName: handson-research-queue
       VisibilityTimeout: 960
       MessageRetentionPeriod: 86400
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ResearchDLQ.Arn
+        maxReceiveCount: 3
+
+  ResearchDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: handson-research-queue-dlq
+      MessageRetentionPeriod: 1209600
 
   ExecuteQueue:
     Type: AWS::SQS::Queue
@@ -224,6 +233,15 @@ Resources:
       QueueName: handson-execute-queue
       VisibilityTimeout: 960
       MessageRetentionPeriod: 86400
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ExecuteDLQ.Arn
+        maxReceiveCount: 3
+
+  ExecuteDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: handson-execute-queue-dlq
+      MessageRetentionPeriod: 1209600
 
   PublishQueue:
     Type: AWS::SQS::Queue
@@ -231,6 +249,15 @@ Resources:
       QueueName: handson-publish-queue
       VisibilityTimeout: 960
       MessageRetentionPeriod: 86400
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt PublishDLQ.Arn
+        maxReceiveCount: 3
+
+  PublishDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: handson-publish-queue-dlq
+      MessageRetentionPeriod: 1209600
 
   # ============================================================
   # SNS Topics
