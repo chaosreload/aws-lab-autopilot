@@ -19,6 +19,31 @@ from aws_cdk.aws_apigatewayv2_integrations import HttpLambdaIntegration
 from constructs import Construct
 
 
+import jsii
+
+@jsii.implements(cdk.ILocalBundling)
+class _LocalBundler:
+    def __init__(self, source_path: str):
+        self._source_path = source_path
+
+    def try_bundle(self, output_dir: str, *, image=None, entrypoint=None,
+                   command=None, volumes=None, environment=None,
+                   working_directory=None, user=None, security_opt=None,
+                   network=None, bundling_file_access=None, **kwargs) -> bool:
+        import subprocess, shutil
+        subprocess.check_call([
+            "pip", "install", "-r",
+            os.path.join(self._source_path, "requirements.txt"),
+            "-t", output_dir, "-q",
+            "--platform", "manylinux2014_x86_64",
+            "--python-version", "3.12",
+            "--only-binary=:all:",
+        ])
+        src_dir = os.path.join(self._source_path, "src")
+        shutil.copytree(src_dir, os.path.join(output_dir, "src"), dirs_exist_ok=True)
+        return True
+
+
 class AutopilotStack(cdk.Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -111,6 +136,20 @@ class AutopilotStack(cdk.Stack):
             "tests", "node_modules", ".pytest_cache",
         ]
 
+        bundled_code = _lambda.Code.from_asset(
+            code_path,
+            exclude=code_excludes,
+            asset_hash_type=cdk.AssetHashType.OUTPUT,
+            bundling=cdk.BundlingOptions(
+                image=_lambda.Runtime.PYTHON_3_12.bundling_image,
+                command=[
+                    "bash", "-c",
+                    "pip install -r requirements.txt -t /asset-output && cp -au . /asset-output",
+                ],
+                local=_LocalBundler(code_path),
+            ),
+        )
+
         common_env = {
             "TASKS_TABLE": tasks_table.table_name,
             "RESOURCES_TABLE": resources_table.table_name,
@@ -121,7 +160,7 @@ class AutopilotStack(cdk.Stack):
             self, "ApiHandler",
             runtime=_lambda.Runtime.PYTHON_3_12,
             handler="src.api.handler.handler",
-            code=_lambda.Code.from_asset(code_path, exclude=code_excludes),
+            code=bundled_code,
             timeout=Duration.seconds(900),
             memory_size=256,
             environment={**common_env},
@@ -131,7 +170,7 @@ class AutopilotStack(cdk.Stack):
             self, "SqsHandler",
             runtime=_lambda.Runtime.PYTHON_3_12,
             handler="src.orchestrator.sqs_handler.handler",
-            code=_lambda.Code.from_asset(code_path, exclude=code_excludes),
+            code=bundled_code,
             timeout=Duration.seconds(900),
             memory_size=512,
             environment={**common_env},
@@ -141,7 +180,7 @@ class AutopilotStack(cdk.Stack):
             self, "IncrementRework",
             runtime=_lambda.Runtime.PYTHON_3_12,
             handler="src.orchestrator.increment_rework.handler",
-            code=_lambda.Code.from_asset(code_path, exclude=code_excludes),
+            code=bundled_code,
             timeout=Duration.seconds(30),
             memory_size=128,
             environment={
