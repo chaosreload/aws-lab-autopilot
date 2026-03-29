@@ -134,6 +134,21 @@ def read_execute_results(task_id: str) -> str:
         return ""
 
 
+_github_config_cache: dict | None = None
+
+
+def _get_github_config() -> dict:
+    """Read GitHub config from Secrets Manager with local cache."""
+    global _github_config_cache
+    if _github_config_cache is not None:
+        return _github_config_cache
+    secret_name = os.environ.get("GITHUB_SECRET_NAME", "aws-lab-autopilot/github")
+    client = boto3.client("secretsmanager", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+    response = client.get_secret_value(SecretId=secret_name)
+    _github_config_cache = json.loads(response["SecretString"])
+    return _github_config_cache
+
+
 @tool
 def git_push(article_content: str, article_path: str, commit_message: str) -> str:
     """Push an article to a GitHub repository via the REST API.
@@ -146,13 +161,26 @@ def git_push(article_content: str, article_path: str, commit_message: str) -> st
     Returns:
         JSON string with the result or skip message.
     """
-    token = os.environ.get("GITHUB_TOKEN", "")
+    try:
+        cfg = _get_github_config()
+    except Exception as e:
+        logger.warning("Failed to read GitHub secret: %s", e)
+        return json.dumps({"message": "GitHub secret not configured, skipping push"})
+
+    token = cfg.get("GITHUB_TOKEN", "")
     if not token:
         return json.dumps({"message": "GITHUB_TOKEN not configured, skipping push"})
 
-    repo = os.environ.get("GITHUB_REPO", "")
+    repo = cfg.get("GITHUB_REPO", "")
     if not repo:
-        return json.dumps({"error": "GITHUB_REPO environment variable not set"})
+        return json.dumps({"error": "GITHUB_REPO not set in secret"})
+
+    branch = cfg.get("GITHUB_BRANCH", "staging")
+    base_path = cfg.get("GITHUB_ARTICLE_BASE_PATH", "docs")
+
+    # Ensure article_path is prefixed with base_path
+    if not article_path.startswith(base_path + "/") and not article_path.startswith(base_path + "\\"):
+        article_path = f"{base_path}/{article_path}"
 
     api_url = f"https://api.github.com/repos/{repo}/contents/{article_path}"
     headers = {
@@ -162,7 +190,7 @@ def git_push(article_content: str, article_path: str, commit_message: str) -> st
 
     # Check if file already exists to get its sha
     sha = None
-    resp = requests.get(api_url, headers=headers, timeout=30)
+    resp = requests.get(api_url, headers=headers, params={"ref": branch}, timeout=30)
     if resp.status_code == 200:
         sha = resp.json().get("sha")
 
@@ -170,7 +198,7 @@ def git_push(article_content: str, article_path: str, commit_message: str) -> st
     payload = {
         "message": commit_message,
         "content": base64.b64encode(article_content.encode("utf-8")).decode("ascii"),
-        "branch": "main",
+        "branch": branch,
     }
     if sha:
         payload["sha"] = sha
@@ -180,6 +208,7 @@ def git_push(article_content: str, article_path: str, commit_message: str) -> st
         return json.dumps({
             "status": "pushed",
             "path": article_path,
+            "branch": branch,
             "url": resp.json().get("content", {}).get("html_url", ""),
         })
     return json.dumps({"error": f"GitHub API error: {resp.status_code} {resp.text}"})

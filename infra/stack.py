@@ -15,6 +15,7 @@ from aws_cdk import (
     aws_apigatewayv2 as apigwv2,
     aws_iam as iam,
 )
+from aws_cdk import aws_secretsmanager as secretsmanager
 from aws_cdk.aws_apigatewayv2_integrations import HttpLambdaIntegration
 from constructs import Construct
 
@@ -175,8 +176,7 @@ class AutopilotStack(cdk.Stack):
             memory_size=512,
             environment={
                 **common_env,
-                "GITHUB_TOKEN": "",
-                "GITHUB_REPO": "chaosreload/aws-hands-on-lab",
+                "GITHUB_SECRET_NAME": "aws-lab-autopilot/github",
             },
         )
 
@@ -204,6 +204,24 @@ class AutopilotStack(cdk.Stack):
         tasks_table.grant_read_write_data(sqs_handler)
         resources_table.grant_read_write_data(sqs_handler)
         workflow_bucket.grant_read_write(sqs_handler)
+
+        # SqsHandler needs Secrets Manager for GitHub config
+        github_secret = secretsmanager.Secret.from_secret_name_v2(
+            self, "GithubSecret", "aws-lab-autopilot/github"
+        )
+        github_secret.grant_read(sqs_handler)
+
+        # SqsHandler needs Bedrock permissions for agent model calls
+        sqs_handler.add_to_role_policy(iam.PolicyStatement(
+            actions=[
+                "bedrock:InvokeModel",
+                "bedrock:InvokeModelWithResponseStream",
+            ],
+            resources=[
+                f"arn:aws:bedrock:us-east-1:{cdk.Aws.ACCOUNT_ID}:inference-profile/us.anthropic.*",
+                f"arn:aws:bedrock:*::foundation-model/anthropic.*",
+            ],
+        ))
 
         # SqsHandler needs IAM permissions for Execute Agent scoped roles
         sqs_handler.add_to_role_policy(iam.PolicyStatement(

@@ -43,7 +43,7 @@ SYSTEM_PROMPT = """\
 注意：如果不需要 rework，不要返回 rework_needed 字段（设计文档约定）。
 """
 
-MODEL_ID = "us.anthropic.claude-sonnet-4-6-v1"
+MODEL_ID = "us.anthropic.claude-sonnet-4-6"
 
 
 def _create_agent() -> Agent:
