@@ -18,7 +18,9 @@
       "TimeoutSeconds": 7200,
       "Catch": [
         {
-          "ErrorEquals": ["States.ALL"],
+          "ErrorEquals": [
+            "States.ALL"
+          ],
           "Next": "NeedsHuman",
           "ResultPath": "$.error_info"
         }
@@ -30,7 +32,7 @@
         {
           "Variable": "$.research_result.verdict",
           "StringEquals": "skip",
-          "Next": "Skipped"
+          "Next": "UpdateSkipped"
         }
       ],
       "Default": "Execute"
@@ -51,13 +53,17 @@
       "TimeoutSeconds": 28800,
       "Retry": [
         {
-          "ErrorEquals": ["TransientError"],
+          "ErrorEquals": [
+            "TransientError"
+          ],
           "MaxAttempts": 1
         }
       ],
       "Catch": [
         {
-          "ErrorEquals": ["States.ALL"],
+          "ErrorEquals": [
+            "States.ALL"
+          ],
           "Next": "NeedsHuman",
           "ResultPath": "$.error_info"
         }
@@ -80,7 +86,9 @@
       "TimeoutSeconds": 7200,
       "Catch": [
         {
-          "ErrorEquals": ["States.ALL"],
+          "ErrorEquals": [
+            "States.ALL"
+          ],
           "Next": "NeedsHuman",
           "ResultPath": "$.error_info"
         }
@@ -180,6 +188,32 @@
       "Type": "Fail",
       "Error": "NeedsHumanReview",
       "Cause": "Rework limit exceeded or unhandled rework type"
+    },
+    "UpdateSkipped": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "handson-tasks",
+        "Key": {
+          "task_id": {
+            "S.$": "$.task_id"
+          }
+        },
+        "UpdateExpression": "SET #s = :s, updated_at = :ts",
+        "ExpressionAttributeNames": {
+          "#s": "state"
+        },
+        "ExpressionAttributeValues": {
+          ":s": {
+            "S": "skipped"
+          },
+          ":ts": {
+            "S.$": "$$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Skipped"
     }
   }
 }
