@@ -31,13 +31,14 @@ def aws_knowledge_read(query: str) -> str:
     enriched = []
     for r in results:
         excerpt = ""
-        if r.get("url"):
-            excerpt = read_documentation(r["url"], max_chars=4000)
+        url = r.get("url", "")
+        if url:
+            excerpt = read_documentation(url, max_length=4000)
         enriched.append(
             {
                 "title": r.get("title", ""),
-                "url": r.get("url", ""),
-                "excerpt": excerpt[:2000] if excerpt else r.get("context", ""),
+                "url": url,
+                "excerpt": excerpt[:2000] if excerpt else r.get("context", r.get("text", "")),
             }
         )
     return json.dumps({"results": enriched}, ensure_ascii=False)

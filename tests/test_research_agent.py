@@ -82,6 +82,10 @@ class TestAwsKnowledgeRead:
         assert len(result["results"]) == 1
         assert result["results"][0]["title"] == "S3 Example"
         assert "S3 documentation content" in result["results"][0]["excerpt"]
+        mock_read.assert_called_once_with(
+            "https://docs.aws.amazon.com/s3/latest/userguide/example.html",
+            max_length=4000,
+        )
 
     @patch("src.agents.research.tools.search_documentation")
     def test_no_results(self, mock_search):
@@ -93,6 +97,22 @@ class TestAwsKnowledgeRead:
         result = json.loads(result_json)
 
         assert result["results"] == []
+
+    @patch("src.agents.research.tools.read_documentation")
+    @patch("src.agents.research.tools.search_documentation")
+    def test_fallback_to_text_field(self, mock_search, mock_read):
+        """When MCP search returns results with 'text' instead of 'context', use that as fallback."""
+        from src.agents.research.tools import aws_knowledge_read
+
+        mock_search.return_value = [
+            {"url": "", "title": "Fallback", "text": "fallback content"},
+        ]
+
+        result_json = aws_knowledge_read(query="test")
+        result = json.loads(result_json)
+
+        assert result["results"][0]["excerpt"] == "fallback content"
+        mock_read.assert_not_called()
 
 
 class TestRunResearch:

@@ -1,95 +1,88 @@
-"""AWS Documentation search and read — lightweight wrapper using the public AWS docs search API."""
+"""AWS Documentation search and read via aws-knowledge MCP server (JSON-RPC 2.0 over HTTP)."""
 
 from __future__ import annotations
 
+import json
 import logging
-import re
-from html.parser import HTMLParser
 
 import requests
 
 logger = logging.getLogger(__name__)
 
-SEARCH_API_URL = "https://proxy.search.docs.aws.com/search"
-DOCS_BASE = "https://docs.aws.amazon.com"
-_TIMEOUT = 15
+MCP_ENDPOINT = "https://knowledge-mcp.global.api.aws"
+_TIMEOUT = 30
 
 
-class _TextExtractor(HTMLParser):
-    """Minimal HTML-to-text extractor for AWS doc pages."""
+def _call_mcp(method: str, params: dict) -> str:
+    """Call a tool on the aws-knowledge MCP server and return the text content."""
+    response = requests.post(
+        MCP_ENDPOINT,
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": method, "arguments": params},
+        },
+        timeout=_TIMEOUT,
+    )
+    response.raise_for_status()
+    result = response.json()
+    if "error" in result:
+        raise RuntimeError(f"MCP error: {result['error']}")
+    content = result.get("result", {}).get("content", [])
+    if content and content[0].get("type") == "text":
+        return content[0]["text"]
+    return ""
 
-    def __init__(self):
-        super().__init__()
-        self._pieces: list[str] = []
-        self._skip = False
 
-    def handle_starttag(self, tag, attrs):
-        if tag in ("script", "style", "nav", "header", "footer"):
-            self._skip = True
-
-    def handle_endtag(self, tag):
-        if tag in ("script", "style", "nav", "header", "footer"):
-            self._skip = False
-
-    def handle_data(self, data):
-        if not self._skip:
-            text = data.strip()
-            if text:
-                self._pieces.append(text)
-
-    def get_text(self) -> str:
-        return "\n".join(self._pieces)
+def _unwrap_mcp_text(text: str):
+    """Unwrap the nested ``{"content": {"result": ...}}`` envelope from MCP responses."""
+    try:
+        parsed = json.loads(text) if isinstance(text, str) else text
+        if isinstance(parsed, dict) and "content" in parsed:
+            inner = parsed["content"]
+            if isinstance(inner, dict) and "result" in inner:
+                return inner["result"]
+        return parsed
+    except (json.JSONDecodeError, TypeError):
+        return text
 
 
 def search_documentation(query: str, limit: int = 5) -> list[dict]:
-    """Search AWS documentation and return a list of ``{url, title, context}`` dicts."""
-    body = {
-        "textQuery": {"input": query},
-        "contextAttributes": [{"key": "domain", "value": "docs.aws.amazon.com"}],
-        "acceptSuggestionBody": "RawText",
-        "locales": ["en_us"],
-    }
-    try:
-        resp = requests.post(SEARCH_API_URL, json=body, timeout=_TIMEOUT)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception:
-        logger.exception("AWS docs search failed for query=%s", query)
-        return []
-
-    results: list[dict] = []
-    for item in data.get("searchResults", [])[:limit]:
-        results.append(
-            {
-                "url": item.get("url", ""),
-                "title": item.get("title", ""),
-                "context": item.get("context", ""),
-            }
-        )
-    return results
+    """Search AWS documentation via MCP and return parsed results."""
+    text = _call_mcp(
+        "aws___search_documentation",
+        {"search_phrase": query, "limit": limit},
+    )
+    result = _unwrap_mcp_text(text)
+    if isinstance(result, list):
+        return result
+    if isinstance(result, str) and result:
+        return [{"text": result}]
+    return []
 
 
-def read_documentation(url: str, max_chars: int = 8000) -> str:
-    """Fetch an AWS documentation page and return plain-text content (truncated)."""
-    if not re.match(r"^https?://docs\.aws\.amazon\.com/", url):
-        return f"Invalid URL: {url}. Must be from docs.aws.amazon.com"
+def read_documentation(url: str, max_length: int = 10000) -> str:
+    """Read an AWS documentation page via MCP and return text content."""
+    text = _call_mcp(
+        "aws___read_documentation",
+        {"url": url, "max_length": max_length},
+    )
+    result = _unwrap_mcp_text(text)
+    return result if isinstance(result, str) else json.dumps(result)
 
-    try:
-        resp = requests.get(
-            url,
-            timeout=_TIMEOUT,
-            headers={
-                "User-Agent": "Mozilla/5.0 (compatible; aws-lab-autopilot/0.1)"
-            },
-        )
-        resp.raise_for_status()
-    except Exception:
-        logger.exception("Failed to fetch %s", url)
-        return f"Error fetching {url}"
 
-    extractor = _TextExtractor()
-    extractor.feed(resp.text)
-    text = extractor.get_text()
-    if len(text) > max_chars:
-        text = text[:max_chars] + "\n...(truncated)"
-    return text
+def get_regional_availability(service: str, regions: list[str]) -> dict:
+    """Check regional availability for an AWS service via MCP."""
+    text = _call_mcp(
+        "aws___get_regional_availability",
+        {
+            "resource_type": "product",
+            "regions": regions,
+            "filters": [service],
+        },
+    )
+    result = _unwrap_mcp_text(text)
+    if isinstance(result, (dict, list)):
+        return result
+    return {"text": result}
