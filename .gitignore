@@ -1,3 +1,6 @@
 
 # SAM build artifacts
 .aws-sam/
+
+# CDK
+cdk.out/
