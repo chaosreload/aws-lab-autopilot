@@ -199,16 +199,13 @@
             "S.$": "$.task_id"
           }
         },
-        "UpdateExpression": "SET #s = :s, updated_at = :ts",
+        "UpdateExpression": "SET #s = :s",
         "ExpressionAttributeNames": {
           "#s": "state"
         },
         "ExpressionAttributeValues": {
           ":s": {
             "S": "skipped"
-          },
-          ":ts": {
-            "S.$": "$$$.State.EnteredTime"
           }
         }
       },
