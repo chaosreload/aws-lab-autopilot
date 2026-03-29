@@ -168,7 +168,10 @@ class AutopilotStack(cdk.Stack):
             code=bundled_code,
             timeout=Duration.seconds(900),
             memory_size=256,
-            environment={**common_env},
+            environment={
+                **common_env,
+                "GITHUB_SECRET_NAME": _github_secret_name,
+            },
         )
 
         sqs_handler = _lambda.Function(
@@ -209,11 +212,12 @@ class AutopilotStack(cdk.Stack):
         resources_table.grant_read_write_data(sqs_handler)
         workflow_bucket.grant_read_write(sqs_handler)
 
-        # SqsHandler needs Secrets Manager for GitHub config
+        # Secrets Manager for GitHub config (used by SqsHandler and ApiHandler approve endpoint)
         github_secret = secretsmanager.Secret.from_secret_name_v2(
             self, "GithubSecret", _github_secret_name
         )
         github_secret.grant_read(sqs_handler)
+        github_secret.grant_read(api_handler)
 
         # SqsHandler needs Bedrock permissions for agent model calls
         sqs_handler.add_to_role_policy(iam.PolicyStatement(

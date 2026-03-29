@@ -10,7 +10,7 @@ from strands.models.bedrock import BedrockModel
 
 from src.agents.publish.tools import (
     aws_knowledge_read_publish,
-    git_push,
+    generate_preview_url,
     quality_check,
     read_execute_results,
     read_research_notes,
@@ -30,17 +30,20 @@ SYSTEM_PROMPT = """\
 3. 撰写文章（Markdown 格式，含：背景、前置条件、步骤、测试数据、踩坑、IAM Policy、费用、清理）
 4. 用 quality_check 自检 7 条红线，不通过则修改文章
 5. 用 write_article 保存到 S3
-6. 用 git_push 发布到 GitHub
+6. 用 generate_preview_url 生成 S3 预览链接（24小时有效）
+7. 不要调用 git_push，发布由人工审批后触发
 
 输出格式（JSON）：
 {
   "quality_passed": true,
   "article_path": "docs/ai-ml/xxx.md",
-  "published_url": "https://chaosreload.github.io/aws-hands-on-lab/ai-ml/xxx/",
+  "preview_url": "https://s3.amazonaws.com/...",
+  "published_url": null,
   "calibration": {"verified": 3, "corrected": 0, "undocumented": 1},
   "rework_needed": true/false（如果 quality_check 反复失败 2 次，设为 true）
 }
 注意：如果不需要 rework，不要返回 rework_needed 字段（设计文档约定）。
+注意：published_url 在此阶段始终为 null，等人工 approve 后才会填入。
 """
 
 MODEL_ID = "us.anthropic.claude-sonnet-4-6"
@@ -56,7 +59,7 @@ def _create_agent() -> Agent:
             aws_knowledge_read_publish,
             quality_check,
             write_article,
-            git_push,
+            generate_preview_url,
             memory_search,
         ],
         system_prompt=SYSTEM_PROMPT,
@@ -114,7 +117,8 @@ def run_publish(task_id: str, research_result: dict, execute_result: dict) -> di
     defaults = {
         "quality_passed": False,
         "article_path": "",
-        "published_url": "",
+        "preview_url": "",
+        "published_url": None,
         "calibration": {"verified": 0, "corrected": 0, "undocumented": 0},
     }
     for key, default in defaults.items():

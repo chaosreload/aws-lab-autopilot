@@ -134,6 +134,30 @@ def read_execute_results(task_id: str) -> str:
         return ""
 
 
+@tool
+def generate_preview_url(task_id: str) -> str:
+    """Generate a pre-signed URL for previewing the article on S3 (valid 24 hours).
+
+    Args:
+        task_id: The unique task identifier.
+
+    Returns:
+        JSON string with preview_url and expires_in.
+    """
+    s3 = boto3.client("s3", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+    bucket = os.environ.get("S3_BUCKET", "")
+    if not bucket:
+        return json.dumps({"error": "S3_BUCKET environment variable not set"})
+
+    key = f"tasks/{task_id}/article.md"
+    url = s3.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": bucket, "Key": key},
+        ExpiresIn=86400,
+    )
+    return json.dumps({"preview_url": url, "expires_in": "24 hours"})
+
+
 _github_config_cache: dict | None = None
 
 
@@ -175,7 +199,7 @@ def git_push(article_content: str, article_path: str, commit_message: str) -> st
     if not repo:
         return json.dumps({"error": "GITHUB_REPO not set in secret"})
 
-    branch = cfg.get("GITHUB_BRANCH", "staging")
+    branch = cfg.get("GITHUB_BRANCH", "main")
     base_path = cfg.get("GITHUB_ARTICLE_BASE_PATH", "docs")
 
     # Ensure article_path is prefixed with base_path

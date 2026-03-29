@@ -50,6 +50,9 @@ def handler(event, context):
             return _create_task(event)
         elif method == "POST" and path == "/tasks/batch":
             return _create_batch(event)
+        elif method == "POST" and path.startswith("/tasks/") and path.endswith("/approve"):
+            task_id = path.split("/")[2]
+            return _approve_task(task_id)
         elif method == "GET" and path.startswith("/tasks/") and path.endswith("/result"):
             task_id = path.split("/")[2]
             return _get_task_result(task_id)
@@ -182,6 +185,9 @@ def _get_task_result(task_id: str):
     if not item:
         return _json_response(404, {"error": "Task not found"})
 
+    publish_result = item.get("publish_result") or {}
+    preview_url = item.get("preview_url") or publish_result.get("preview_url")
+
     resp = TaskResultResponse(
         task_id=item["task_id"],
         state=item.get("state", "unknown"),
@@ -189,6 +195,7 @@ def _get_task_result(task_id: str):
         research_result=item.get("research_result"),
         execute_result=item.get("execute_result"),
         publish_result=item.get("publish_result"),
+        preview_url=preview_url,
         published_url=item.get("published_url"),
         test_results=item.get("test_results"),
         rework_count=int(item.get("rework_count", 0)),
@@ -265,6 +272,69 @@ def _create_batch(event):
         results.append({"task_id": task_id, "state": "queued"})
 
     return _json_response(202, {"tasks": results})
+
+
+def _approve_task(task_id: str):
+    """Approve a completed task: push article to GitHub main branch."""
+    table = _get_table()
+    result = table.get_item(Key={"task_id": task_id})
+    item = result.get("Item")
+    if not item:
+        return _json_response(404, {"error": "Task not found"})
+
+    state = item.get("state", "")
+    if state != "completed":
+        return _json_response(400, {"error": f"Task state is '{state}', must be 'completed' to approve"})
+
+    if item.get("published_url"):
+        return _json_response(400, {"error": "Task already published", "published_url": item["published_url"]})
+
+    # Read article from S3
+    bucket = os.environ.get("S3_BUCKET", "")
+    s3 = boto3.client("s3")
+    key = f"tasks/{task_id}/article.md"
+    try:
+        resp = s3.get_object(Bucket=bucket, Key=key)
+        article_content = resp["Body"].read().decode("utf-8")
+    except Exception:
+        logger.exception("Failed to read article from S3 for task %s", task_id)
+        return _json_response(500, {"error": "Failed to read article from S3"})
+
+    # Derive article_path from publish_result
+    publish_result = item.get("publish_result") or {}
+    article_path = publish_result.get("article_path", "")
+    if not article_path:
+        return _json_response(400, {"error": "No article_path in publish_result"})
+
+    # Push to GitHub via git_push tool logic
+    from src.agents.publish.tools import git_push
+
+    push_result_str = git_push(
+        article_content=article_content,
+        article_path=article_path,
+        commit_message=f"publish: {article_path}",
+    )
+    push_result = json.loads(push_result_str)
+
+    if push_result.get("error"):
+        return _json_response(500, {"error": push_result["error"]})
+
+    # Build published URL
+    published_url = push_result.get("url", "")
+    if not published_url:
+        # Fallback: construct from article_path
+        path_without_docs = article_path.removeprefix("docs/").removesuffix(".md")
+        published_url = f"https://chaosreload.github.io/aws-hands-on-lab/{path_without_docs}/"
+
+    # Update DynamoDB
+    now = datetime.now(timezone.utc).isoformat()
+    table.update_item(
+        Key={"task_id": task_id},
+        UpdateExpression="SET published_url = :url, updated_at = :now",
+        ExpressionAttributeValues={":url": published_url, ":now": now},
+    )
+
+    return _json_response(200, {"task_id": task_id, "published_url": published_url})
 
 
 def _delete_task(task_id: str):

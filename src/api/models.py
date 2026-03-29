@@ -37,6 +37,7 @@ class TaskResultResponse(BaseModel):
     research_result: Optional[dict] = None
     execute_result: Optional[dict] = None
     publish_result: Optional[dict] = None
+    preview_url: Optional[str] = None
     published_url: Optional[str] = None
     test_results: Optional[dict] = None
     rework_count: int = 0
