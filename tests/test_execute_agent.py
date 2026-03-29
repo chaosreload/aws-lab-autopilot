@@ -163,9 +163,8 @@ class TestTrackResource:
             mock_tracker.record.assert_called_once_with(
                 task_id="task-123",
                 resource_type="s3:bucket",
-                resource_id="arn:aws:s3:::my-bucket",
+                resource_arn="arn:aws:s3:::my-bucket",
                 region="us-east-1",
-                arn="arn:aws:s3:::my-bucket",
             )
         finally:
             tools._get_resource_tracker = original

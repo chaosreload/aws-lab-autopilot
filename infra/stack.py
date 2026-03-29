@@ -173,7 +173,11 @@ class AutopilotStack(cdk.Stack):
             code=bundled_code,
             timeout=Duration.seconds(900),
             memory_size=512,
-            environment={**common_env},
+            environment={
+                **common_env,
+                "GITHUB_TOKEN": "",
+                "GITHUB_REPO": "chaosreload/aws-hands-on-lab",
+            },
         )
 
         increment_rework = _lambda.Function(
@@ -198,7 +202,18 @@ class AutopilotStack(cdk.Stack):
 
         # SqsHandler
         tasks_table.grant_read_write_data(sqs_handler)
+        resources_table.grant_read_write_data(sqs_handler)
         workflow_bucket.grant_read_write(sqs_handler)
+
+        # SqsHandler needs IAM permissions for Execute Agent scoped roles
+        sqs_handler.add_to_role_policy(iam.PolicyStatement(
+            actions=[
+                "iam:CreateRole", "iam:DeleteRole", "iam:GetRole",
+                "iam:PutRolePolicy", "iam:DeleteRolePolicy",
+                "iam:TagRole", "iam:ListRolePolicies",
+            ],
+            resources=[f"arn:aws:iam::{cdk.Aws.ACCOUNT_ID}:role/handson-lab-*"],
+        ))
 
         # IncrementRework
         tasks_table.grant_read_write_data(increment_rework)

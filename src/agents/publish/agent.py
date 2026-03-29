@@ -16,6 +16,7 @@ from src.agents.publish.tools import (
     read_research_notes,
     write_article,
 )
+from src.agents.research.tools import memory_search
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ SYSTEM_PROMPT = """\
 注意：如果不需要 rework，不要返回 rework_needed 字段（设计文档约定）。
 """
 
-MODEL_ID = "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+MODEL_ID = "us.anthropic.claude-sonnet-4-6-v1"
 
 
 def _create_agent() -> Agent:
@@ -56,6 +57,7 @@ def _create_agent() -> Agent:
             quality_check,
             write_article,
             git_push,
+            memory_search,
         ],
         system_prompt=SYSTEM_PROMPT,
     )

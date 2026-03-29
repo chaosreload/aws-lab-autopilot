@@ -80,9 +80,9 @@ MOCK_RESULTS = {
 def _detect_agent_type(body: dict) -> str:
     if "agent_type" in body:
         return body["agent_type"]
-    if "research" in body:
-        if "execute_result" in body:
-            return "publish"
+    if "execute_result" in body:
+        return "publish"
+    if "research" in body or "research_result" in body:
         return "execute"
     return "research"
 

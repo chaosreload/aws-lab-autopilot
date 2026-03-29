@@ -31,29 +31,26 @@ class ResourceTracker:
         *,
         task_id: str,
         resource_type: str,
-        resource_id: str,
+        resource_arn: str,
         region: str = "",
-        arn: str = "",
         metadata: dict[str, Any] | None = None,
     ) -> None:
         """Record a single resource creation event."""
         now = datetime.now(timezone.utc).isoformat()
         item: dict[str, Any] = {
             "task_id": task_id,
-            "resource_id": resource_id,
+            "resource_arn": resource_arn,
             "resource_type": resource_type,
             "region": region or os.environ.get("AWS_DEFAULT_REGION", "us-east-1"),
             "status": "active",
             "created_at": now,
         }
-        if arn:
-            item["arn"] = arn
         if metadata:
             item["metadata"] = metadata
 
         self._table.put_item(Item=item)
         logger.info(
-            "Tracked resource %s (%s) for task %s", resource_id, resource_type, task_id
+            "Tracked resource %s (%s) for task %s", resource_arn, resource_type, task_id
         )
 
     def list_resources(self, task_id: str) -> list[dict[str, Any]]:
@@ -65,16 +62,16 @@ class ResourceTracker:
         )
         return resp.get("Items", [])
 
-    def mark_deleted(self, task_id: str, resource_id: str) -> None:
+    def mark_deleted(self, task_id: str, resource_arn: str) -> None:
         """Mark a resource as deleted (soft-delete)."""
         now = datetime.now(timezone.utc).isoformat()
         self._table.update_item(
-            Key={"task_id": task_id, "resource_id": resource_id},
+            Key={"task_id": task_id, "resource_arn": resource_arn},
             UpdateExpression="SET #s = :status, deleted_at = :now",
             ExpressionAttributeNames={"#s": "status"},
             ExpressionAttributeValues={":status": "deleted", ":now": now},
         )
-        logger.info("Marked resource %s as deleted for task %s", resource_id, task_id)
+        logger.info("Marked resource %s as deleted for task %s", resource_arn, task_id)
 
     def mark_all_deleted(self, task_id: str) -> int:
         """Mark all resources for a task as deleted. Returns count."""
@@ -82,7 +79,7 @@ class ResourceTracker:
         count = 0
         for r in resources:
             if r.get("status") != "deleted":
-                self.mark_deleted(task_id, r["resource_id"])
+                self.mark_deleted(task_id, r["resource_arn"])
                 count += 1
         logger.info("Marked %d resources as deleted for task %s", count, task_id)
         return count

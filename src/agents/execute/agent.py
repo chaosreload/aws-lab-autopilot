@@ -44,7 +44,7 @@ Output format (JSON):
 }
 """
 
-MODEL_ID = "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+MODEL_ID = "us.anthropic.claude-sonnet-4-6-v1"
 
 
 def _create_agent() -> Agent:

@@ -214,9 +214,8 @@ def track_resource(task_id: str, resource_arn: str, resource_type: str, region: 
     _get_resource_tracker().record(
         task_id=task_id,
         resource_type=resource_type,
-        resource_id=resource_arn,
+        resource_arn=resource_arn,
         region=region,
-        arn=resource_arn,
     )
     return json.dumps({"status": f"Tracked {resource_arn}"})
 

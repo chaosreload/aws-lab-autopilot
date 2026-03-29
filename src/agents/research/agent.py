@@ -33,7 +33,7 @@ You MUST respond with a valid JSON object (no markdown fencing) containing:
 }
 """
 
-MODEL_ID = "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+MODEL_ID = "us.anthropic.claude-opus-4-6-v1"
 
 
 def _create_agent() -> Agent:

@@ -91,7 +91,7 @@
       "Choices": [
         {
           "Variable": "$.publish_result.rework_needed",
-          "BooleanEquals": true,
+          "IsPresent": true,
           "Next": "IncrementRework"
         }
       ],
