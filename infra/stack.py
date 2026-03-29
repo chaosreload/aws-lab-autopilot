@@ -90,7 +90,7 @@ class AutopilotStack(cdk.Stack):
         # ============================================================
         workflow_bucket = s3.Bucket(
             self, "WorkflowBucket",
-            bucket_name=f"handson-workflow-{cdk.Aws.ACCOUNT_ID}",
+            bucket_name=f"handson-workflow-{cdk.Aws.ACCOUNT_ID}-{cdk.Aws.REGION}",
             versioned=True,
             encryption=s3.BucketEncryption.S3_MANAGED,
             removal_policy=RemovalPolicy.DESTROY,
