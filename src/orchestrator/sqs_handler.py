@@ -1,4 +1,4 @@
-"""SQS to AgentCore bridge Lambda — mock implementation for Phase 1."""
+"""SQS to AgentCore bridge Lambda — dispatches to real agents or mock fallbacks."""
 
 import json
 import logging
@@ -7,6 +7,8 @@ import os
 from datetime import datetime, timezone
 
 import boto3
+
+from src.agents.research.agent import run_research
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -98,10 +100,15 @@ def handler(event, context):
             continue
 
         try:
-            mock_result = MOCK_RESULTS.get(agent_type, {"status": "unknown_agent_type"})
+            if agent_type == "research":
+                url = body.get("url", "")
+                result = run_research(task_id, url)
+            else:
+                result = MOCK_RESULTS.get(agent_type, {"status": "unknown_agent_type"})
+
             sfn.send_task_success(
                 taskToken=task_token,
-                output=json.dumps(mock_result),
+                output=json.dumps(result),
             )
             logger.info("Sent task success for task %s (agent_type=%s)", task_id, agent_type)
         except Exception:
