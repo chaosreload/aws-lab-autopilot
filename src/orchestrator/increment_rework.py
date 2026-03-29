@@ -37,8 +37,8 @@ def handler(event, context):
     # Default: increment_rework
     result = table.update_item(
         Key={"task_id": task_id},
-        UpdateExpression="SET rework_count = rework_count + :inc, updated_at = :now",
-        ExpressionAttributeValues={":inc": 1, ":now": now},
+        UpdateExpression="SET rework_count = if_not_exists(rework_count, :zero) + :inc, updated_at = :now",
+        ExpressionAttributeValues={":inc": 1, ":zero": 0, ":now": now},
         ReturnValues="UPDATED_NEW",
     )
     new_count = int(result["Attributes"]["rework_count"])

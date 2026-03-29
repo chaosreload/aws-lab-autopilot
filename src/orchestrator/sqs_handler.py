@@ -60,7 +60,7 @@ def _detect_agent_type(body: dict) -> str:
 def handler(event, context):
     for record in event.get("Records", []):
         body = json.loads(record["body"])
-        task_token = body.get("token") or body.get("TaskToken")
+        task_token = body.get("token")
         task_id = body.get("task_id")
         agent_type = _detect_agent_type(body)
 
