@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import boto3
 
 from src.agents.execute.agent import run_execute
+from src.agents.publish.agent import run_publish
 from src.agents.research.agent import run_research
 from src.orchestrator.callback import send_failure, send_success
 
@@ -107,6 +108,12 @@ def handler(event, context):
             elif agent_type == "execute":
                 research_result = body.get("research", {})
                 result = run_execute(task_id, research_result)
+            elif agent_type == "publish":
+                result = run_publish(
+                    task_id=body["task_id"],
+                    research_result=body.get("research_result", {}),
+                    execute_result=body.get("execute_result", {}),
+                )
             else:
                 result = MOCK_RESULTS.get(agent_type, {"status": "unknown_agent_type"})
 
