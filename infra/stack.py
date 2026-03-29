@@ -46,8 +46,12 @@ class _LocalBundler:
 
 
 class AutopilotStack(cdk.Stack):
-    def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
+    def __init__(self, scope: Construct, construct_id: str, article_repo: str = "chaosreload/aws-hands-on-lab", **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
+
+        # Derive GitHub secret name from stack name + article repo name
+        _repo_name = article_repo.split("/")[-1]
+        _github_secret_name = f"{construct_id}/{_repo_name}"
 
         # ============================================================
         # DynamoDB Tables
@@ -176,7 +180,7 @@ class AutopilotStack(cdk.Stack):
             memory_size=512,
             environment={
                 **common_env,
-                "GITHUB_SECRET_NAME": "aws-lab-autopilot/github",
+                "GITHUB_SECRET_NAME": _github_secret_name,
             },
         )
 
@@ -207,7 +211,7 @@ class AutopilotStack(cdk.Stack):
 
         # SqsHandler needs Secrets Manager for GitHub config
         github_secret = secretsmanager.Secret.from_secret_name_v2(
-            self, "GithubSecret", "aws-lab-autopilot/github"
+            self, "GithubSecret", _github_secret_name
         )
         github_secret.grant_read(sqs_handler)
 
@@ -218,7 +222,7 @@ class AutopilotStack(cdk.Stack):
                 "bedrock:InvokeModelWithResponseStream",
             ],
             resources=[
-                f"arn:aws:bedrock:us-east-1:{cdk.Aws.ACCOUNT_ID}:inference-profile/us.anthropic.*",
+                f"arn:aws:bedrock:us-west-2:{cdk.Aws.ACCOUNT_ID}:inference-profile/us.anthropic.*",
                 f"arn:aws:bedrock:*::foundation-model/anthropic.*",
             ],
         ))
