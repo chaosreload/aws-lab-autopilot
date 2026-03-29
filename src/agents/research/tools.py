@@ -9,7 +9,7 @@ import os
 import boto3
 from strands import tool
 
-from src.aws.knowledge import read_documentation, search_documentation
+from src.aws.knowledge import get_regional_availability, read_documentation, search_documentation
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,23 @@ def aws_knowledge_read(query: str) -> str:
             }
         )
     return json.dumps({"results": enriched}, ensure_ascii=False)
+
+
+@tool
+def aws_knowledge_region(service: str, regions: list[str] = None) -> str:
+    """Query AWS service availability in specified regions.
+
+    Args:
+        service: The AWS service name to check (e.g. "bedrock", "lambda").
+        regions: List of AWS region codes. Defaults to us-east-1, us-west-2, ap-southeast-1.
+
+    Returns:
+        JSON string with regional availability information.
+    """
+    if regions is None:
+        regions = ["us-east-1", "us-west-2", "ap-southeast-1"]
+    result = get_regional_availability(service, regions)
+    return json.dumps(result, ensure_ascii=False)
 
 
 @tool

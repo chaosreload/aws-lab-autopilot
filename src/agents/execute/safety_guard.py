@@ -137,6 +137,58 @@ class SafetyGuard:
 
     # ---- public API --------------------------------------------------------
 
+    def pre_execute(self, command: str) -> SafetyVerdict:
+        """Check whether a CLI-style command is safe to execute.
+
+        Parses the command to extract the service and action, then validates
+        against the allow/deny lists.
+        """
+        violations: list[Violation] = []
+        parts = command.strip().split()
+
+        # Extract service from 'aws <service> ...' pattern
+        if len(parts) >= 2 and parts[0] == "aws":
+            service = parts[1].lower()
+            if service not in self.allowed_services:
+                violations.append(
+                    Violation(
+                        category="blocked_service",
+                        detail=f"Service '{service}' is not in the allow-list",
+                    )
+                )
+
+        # Check for dangerous CIDR patterns (e.g. 0.0.0.0/0)
+        if "0.0.0.0/0" in command or "::/0" in command:
+            violations.append(
+                Violation(
+                    category="denied_action",
+                    detail="Open CIDR block (0.0.0.0/0 or ::/0) is not allowed",
+                )
+            )
+
+        verdict = SafetyVerdict(allowed=len(violations) == 0, violations=violations)
+        if not verdict.allowed:
+            logger.warning("SafetyGuard pre_execute BLOCKED: %s", verdict.summary)
+        return verdict
+
+    def check_iam_action(self, action: str) -> SafetyVerdict:
+        """Check whether a single IAM action is safe to grant."""
+        violations: list[Violation] = []
+        for pat in _DENIED_RE:
+            if pat.fullmatch(action):
+                violations.append(
+                    Violation(
+                        category="denied_action",
+                        detail=f"Action '{action}' matches deny pattern '{pat.pattern}'",
+                    )
+                )
+                break
+
+        verdict = SafetyVerdict(allowed=len(violations) == 0, violations=violations)
+        if not verdict.allowed:
+            logger.warning("SafetyGuard check_iam_action BLOCKED: %s", verdict.summary)
+        return verdict
+
     def check(
         self,
         *,

@@ -8,7 +8,7 @@ import logging
 from strands import Agent
 from strands.models.bedrock import BedrockModel
 
-from src.agents.research.tools import aws_knowledge_read, memory_search, write_notes
+from src.agents.research.tools import aws_knowledge_read, aws_knowledge_region, memory_search, write_notes
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ def _create_agent() -> Agent:
     model = BedrockModel(model_id=MODEL_ID)
     return Agent(
         model=model,
-        tools=[aws_knowledge_read, write_notes, memory_search],
+        tools=[aws_knowledge_read, aws_knowledge_region, write_notes, memory_search],
         system_prompt=SYSTEM_PROMPT,
     )
 

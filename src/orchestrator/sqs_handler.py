@@ -8,12 +8,13 @@ from datetime import datetime, timezone
 
 import boto3
 
+from src.agents.execute.agent import run_execute
 from src.agents.research.agent import run_research
+from src.orchestrator.callback import send_failure, send_success
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-sfn = boto3.client("stepfunctions")
 dynamodb = boto3.resource("dynamodb")
 TASKS_TABLE = os.environ.get("TASKS_TABLE", "handson-tasks")
 
@@ -103,21 +104,21 @@ def handler(event, context):
             if agent_type == "research":
                 url = body.get("url", "")
                 result = run_research(task_id, url)
+            elif agent_type == "execute":
+                research_result = body.get("research", {})
+                result = run_execute(task_id, research_result)
             else:
                 result = MOCK_RESULTS.get(agent_type, {"status": "unknown_agent_type"})
 
-            sfn.send_task_success(
-                taskToken=task_token,
-                output=json.dumps(result),
-            )
+            send_success(task_token, result)
             logger.info("Sent task success for task %s (agent_type=%s)", task_id, agent_type)
         except Exception:
             logger.exception("Failed to process task %s", task_id)
             try:
-                sfn.send_task_failure(
-                    taskToken=task_token,
-                    error="AgentError",
-                    cause=f"Mock agent '{agent_type}' failed for task {task_id}",
+                send_failure(
+                    task_token,
+                    "AgentError",
+                    f"Agent '{agent_type}' failed for task {task_id}",
                 )
             except Exception:
                 logger.exception("Failed to send task failure for task %s", task_id)
