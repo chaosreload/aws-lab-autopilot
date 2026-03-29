@@ -14,7 +14,6 @@ Globals:
         TASKS_TABLE: !Ref TasksTable
         RESOURCES_TABLE: !Ref ResourcesTable
         S3_BUCKET: !Ref WorkflowBucket
-        STATE_MACHINE_ARN: !Ref WorkflowStateMachine
 
 Resources:
   # ============================================================
@@ -43,6 +42,9 @@ Resources:
       Handler: src.api.handler.handler
       CodeUri: .
       Description: HTTP API handler for task CRUD operations
+      Environment:
+        Variables:
+          STATE_MACHINE_ARN: !Ref WorkflowStateMachine
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref TasksTable
@@ -98,6 +100,9 @@ Resources:
       Description: SQS to AgentCore bridge Lambda
       Timeout: 900
       MemorySize: 512
+      Environment:
+        Variables:
+          STATE_MACHINE_ARN: !Ref WorkflowStateMachine
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref TasksTable
