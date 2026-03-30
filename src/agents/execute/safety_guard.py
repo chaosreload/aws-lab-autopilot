@@ -156,6 +156,7 @@ ALLOWED_SERVICES: frozenset[str] = frozenset(
         "route53resolver",
         # S3 family
         "s3",
+        "s3api",
         "s3control",
         "s3outposts",
         "s3tables",
