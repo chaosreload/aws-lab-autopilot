@@ -27,7 +27,7 @@ SYSTEM_PROMPT = """\
 
 工作流程：
 1. 用 read_research_notes 和 read_execute_results 读取素材
-2. 用 aws_knowledge_read_publish 校准关键技术声明（至少 3 条，但总调用不超过 3 次，选择最关键的技术声明校准即可）
+2. 用 aws_knowledge_read_publish 校准关键技术声明（根据文章技术声明的数量决定调用次数，每条重要技术声明都需要校准）
 3. 撰写文章（Markdown 格式，含：背景、前置条件、步骤、测试数据、踩坑、IAM Policy、费用、清理）
 4. 用 quality_check 自检 7 条红线，不通过则修改文章
 5. 用 write_article 保存到 S3
