@@ -37,11 +37,11 @@ class TestServiceAllowList:
     def test_blocked_service_fails(self, guard: SafetyGuard):
         verdict = guard.check(
             iam_policy=_make_policy("s3:GetObject"),
-            services=["s3", "redshift"],
+            services=["s3", "organizations"],
         )
         assert verdict.allowed is False
         assert any(v.category == "blocked_service" for v in verdict.violations)
-        assert "redshift" in verdict.violations[0].detail
+        assert "organizations" in verdict.violations[0].detail
 
     def test_empty_services_pass(self, guard: SafetyGuard):
         verdict = guard.check(iam_policy=_make_policy("s3:GetObject"))
@@ -173,7 +173,7 @@ class TestCombinedViolations:
     def test_multiple_violation_types(self, guard: SafetyGuard):
         verdict = guard.check(
             iam_policy=_make_policy("iam:CreateUser"),
-            services=["redshift"],
+            services=["organizations"],
             estimated_cost=100.0,
             resource_count=999,
         )

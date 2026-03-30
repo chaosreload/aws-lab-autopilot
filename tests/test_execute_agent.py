@@ -32,9 +32,9 @@ class TestPreExecuteSafetyCheck:
 
     def test_blocked_service(self):
         guard = SafetyGuard()
-        verdict = guard.pre_execute("aws redshift describe-clusters")
+        verdict = guard.pre_execute("aws organizations list-accounts")
         assert verdict.allowed is False
-        assert any("redshift" in v.detail for v in verdict.violations)
+        assert any("organizations" in v.detail for v in verdict.violations)
 
 
 # ---------------------------------------------------------------------------
