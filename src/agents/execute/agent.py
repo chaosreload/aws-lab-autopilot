@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 
+from botocore.config import Config
 from strands import Agent
 from strands.models.bedrock import BedrockModel
 
@@ -48,7 +49,14 @@ MODEL_ID = "us.anthropic.claude-sonnet-4-6"
 
 
 def _create_agent() -> Agent:
-    model = BedrockModel(model_id=MODEL_ID)
+    model = BedrockModel(
+        model_id=MODEL_ID,
+        boto_client_config=Config(
+            read_timeout=600,
+            connect_timeout=60,
+            retries={"max_attempts": 2},
+        ),
+    )
     return Agent(
         model=model,
         tools=[

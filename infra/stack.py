@@ -226,7 +226,7 @@ class AutopilotStack(cdk.Stack):
                 "bedrock:InvokeModelWithResponseStream",
             ],
             resources=[
-                f"arn:aws:bedrock:us-west-2:{cdk.Aws.ACCOUNT_ID}:inference-profile/us.anthropic.*",
+                f"arn:aws:bedrock:us-east-1:{cdk.Aws.ACCOUNT_ID}:inference-profile/us.anthropic.*",
                 f"arn:aws:bedrock:*::foundation-model/anthropic.*",
             ],
         ))
@@ -273,6 +273,8 @@ class AutopilotStack(cdk.Stack):
         increment_rework.grant_invoke(state_machine)
         notifications_topic.grant_publish(state_machine)
         alerts_topic.grant_publish(state_machine)
+        tasks_table.grant_read_write_data(state_machine)
+        resources_table.grant_read_write_data(state_machine)
 
         # ApiHandler needs to start executions
         api_handler.add_environment("STATE_MACHINE_ARN", state_machine.state_machine_arn)
