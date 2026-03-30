@@ -17,33 +17,95 @@ from src.aws.knowledge import search_documentation
 logger = logging.getLogger(__name__)
 
 
+_PLACEHOLDER_RE = re.compile(r"\.\.\.|预期输出|expected output|TBD", re.IGNORECASE)
+_PRECISION_RE = re.compile(r"\d+\.\d{3,}")
+_TABLE_RE = re.compile(r"^\|.+\|", re.MULTILINE)
+_ERROR_KW_RE = re.compile(r"exception|error|denied|traceback|failed", re.IGNORECASE)
+_SPECULATIVE_RE = re.compile(r"可能|建议注意|可能会|maybe|might", re.IGNORECASE)
+
+
+def _extract_pitfall_section(article_md: str) -> str:
+    """Extract the pitfall / 踩坑 section content."""
+    pattern = re.compile(
+        r"^#{1,3}\s*(?:踩坑|pitfall).*$",
+        re.IGNORECASE | re.MULTILINE,
+    )
+    m = pattern.search(article_md)
+    if not m:
+        return ""
+    start = m.end()
+    next_heading = re.search(r"^#{1,3}\s", article_md[start:], re.MULTILINE)
+    if next_heading:
+        return article_md[start : start + next_heading.start()]
+    return article_md[start:]
+
+
 @tool
 def quality_check(article_md: str) -> str:
-    """Run 7 quality red-line checks on an article.
+    """Run 7 quality red-line checks on an article with substantive validation.
 
     Args:
         article_md: The full Markdown content of the article to check.
 
     Returns:
-        JSON string with passed (bool), checks (dict), and failed_checks (list).
+        JSON string with passed (bool), checks (dict of {pass, detail}),
+        failed_checks (list), and blocking_issues (list).
     """
     lower = article_md.lower()
 
+    # --- has_data: table + precision number + no placeholders ---
+    has_table = bool(_TABLE_RE.search(article_md))
+    has_precision = bool(_PRECISION_RE.search(article_md))
+    has_placeholder = bool(_PLACEHOLDER_RE.search(article_md))
+    data_pass = has_table and has_precision and not has_placeholder
+    data_detail = (
+        f"table={'Y' if has_table else 'N'}, "
+        f"precision={'Y' if has_precision else 'N'}, "
+        f"placeholder={'Y (blocking)' if has_placeholder else 'N'}"
+    )
+
+    # --- has_pitfall: error keywords + no speculative language ---
+    pitfall_section = _extract_pitfall_section(article_md)
+    pitfall_has_error_kw = bool(_ERROR_KW_RE.search(pitfall_section)) if pitfall_section else False
+    pitfall_has_speculative = bool(_SPECULATIVE_RE.search(pitfall_section)) if pitfall_section else False
+    pitfall_pass = bool(pitfall_section) and pitfall_has_error_kw and not pitfall_has_speculative
+    pitfall_detail = (
+        f"section={'Y' if pitfall_section else 'N'}, "
+        f"error_kw={'Y' if pitfall_has_error_kw else 'N'}, "
+        f"speculative={'Y (blocking)' if pitfall_has_speculative else 'N'}"
+    )
+
+    # --- other checks (kept from original) ---
+    reproducible_pass = bool(re.search(r"```", article_md))
+    boundary_pass = bool(re.search(r"边界|boundary|限制|limit", lower))
+    cost_pass = bool(re.search(r"费用|cost|清理|cleanup|\$", lower))
+    calibrated_pass = bool(re.search(r"校准|calibrated|aws-knowledge|官方文档", lower))
+    iam_pass = bool(re.search(r"iam|policy|permission", lower))
+
     checks = {
-        "reproducible": bool(re.search(r"```", article_md)),
-        "has_data": bool(re.search(r"\|", article_md) or re.search(r"测试结果|test results", lower)),
-        "has_boundary": bool(re.search(r"边界|boundary|限制|limit", lower)),
-        "has_cost": bool(re.search(r"费用|cost|清理|cleanup|\$", lower)),
-        "has_pitfall": bool(re.search(r"踩坑|pitfall|注意|warning", lower)),
-        "calibrated": bool(re.search(r"校准|calibrated|aws-knowledge|官方文档", lower)),
-        "has_iam": bool(re.search(r"iam|policy|permission", lower)),
+        "reproducible": {"pass": reproducible_pass, "detail": "Has code blocks" if reproducible_pass else "No code blocks found"},
+        "has_data": {"pass": data_pass, "detail": data_detail},
+        "has_boundary": {"pass": boundary_pass, "detail": "Boundary section present" if boundary_pass else "No boundary/limit keywords"},
+        "has_cost": {"pass": cost_pass, "detail": "Cost info present" if cost_pass else "No cost/cleanup keywords"},
+        "has_pitfall": {"pass": pitfall_pass, "detail": pitfall_detail},
+        "calibrated": {"pass": calibrated_pass, "detail": "Calibration references found" if calibrated_pass else "No calibration keywords"},
+        "has_iam": {"pass": iam_pass, "detail": "IAM info present" if iam_pass else "No IAM/policy/permission keywords"},
     }
 
-    failed = [k for k, v in checks.items() if not v]
+    failed = [k for k, v in checks.items() if not v["pass"]]
+    blocking_issues = []
+    if has_placeholder:
+        blocking_issues.append("Article contains placeholder text (e.g. '...' / '预期输出' / 'TBD')")
+    if pitfall_section and pitfall_has_speculative:
+        blocking_issues.append("Pitfall section contains speculative language instead of evidence-based findings")
+    if pitfall_section and not pitfall_has_error_kw:
+        blocking_issues.append("Pitfall section lacks error evidence keywords (exception/error/denied)")
+
     return json.dumps({
         "passed": len(failed) == 0,
         "checks": checks,
         "failed_checks": failed,
+        "blocking_issues": blocking_issues,
     })
 
 

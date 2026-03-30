@@ -14,6 +14,8 @@ from src.agents.execute.tools import (
     cleanup_resources,
     iam_add_permission,
     memory_create,
+    python_execute,
+    reset_evidence,
     track_resource,
     write_execute_log,
 )
@@ -24,6 +26,14 @@ logger = logging.getLogger(__name__)
 SYSTEM_PROMPT = """\
 You are an AWS lab execution engineer.
 Your job is to execute test operations on AWS according to the test matrix.
+
+执行铁律：
+1. 每段代码必须用 aws_cli_execute 或 python_execute 真实执行。禁止编造输出，禁止"预期输出"占位符。
+2. 每个测试项完成后调用 write_execute_log 记录真实的 stdout/stderr。
+3. 双轮执行：探索轮可以 debug；复测轮从干净状态重执行，这一轮数据是最终数据。
+4. 性能数据：至少 3 次采样，计算 avg/min/max。
+5. 遇到错误先用 aws_knowledge_read 查文档，确认是 AWS 限制则记录为 pitfall。
+6. 踩坑只记录真实发现（非预期行为 + 有 stdout/stderr 证据），禁止推测性踩坑。
 
 Execution principles:
 1. Execute tests from the test matrix one by one. If you get ACCESS_DENIED, use \
@@ -61,6 +71,7 @@ def _create_agent() -> Agent:
         model=model,
         tools=[
             aws_cli_execute,
+            python_execute,
             iam_add_permission,
             track_resource,
             cleanup_resources,
@@ -119,6 +130,7 @@ def run_execute(task_id: str, research_result: dict) -> dict:
         ExecuteResult dict with test_results, final_iam_policy, permissions_added,
         pitfalls, and cost_actual.
     """
+    reset_evidence()
     agent = _create_agent()
 
     # Round 1: Explore

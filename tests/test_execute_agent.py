@@ -82,12 +82,12 @@ class TestAwsCliExecute:
         finally:
             tools._safety_guard = original
 
-    def test_unsupported_command(self):
+    def test_real_execution_returns_output(self):
         from src.agents.execute import tools
 
-        # sns is in the allow-list but has no router implemented
+        # sns is in the allow-list; with real subprocess it runs and returns stdout/stderr
         result = json.loads(tools.aws_cli_execute("aws sns list-topics"))
-        assert "COMMAND_NOT_SUPPORTED" in result.get("error", "")
+        assert "stdout" in result or "stderr" in result or "exit_code" in result
 
     def test_non_aws_command(self):
         from src.agents.execute import tools

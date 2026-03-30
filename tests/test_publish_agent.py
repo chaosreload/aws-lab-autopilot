@@ -43,9 +43,9 @@ aws s3 mb s3://my-test-bucket
 
 ## 测试结果
 
-| 测试项 | 结果 |
-|--------|------|
-| 创建桶 | pass |
+| 测试项 | 结果 | 延迟 |
+|--------|------|------|
+| 创建桶 | pass | 0.6831s |
 
 ## 边界条件 / limit
 
@@ -53,7 +53,7 @@ aws s3 mb s3://my-test-bucket
 
 ## 踩坑 / pitfall
 
-注意区域选择问题。
+执行 `aws s3 cp` 时遇到 AccessDenied error，需要额外权限。
 
 ## 费用 / cost
 
@@ -67,15 +67,30 @@ class TestQualityCheckAllPass:
         assert result["passed"] is True
         assert result["failed_checks"] == []
         for check_name, check_val in result["checks"].items():
-            assert check_val is True, f"{check_name} should be True"
+            assert check_val["pass"] is True, f"{check_name} should pass"
+        assert result["blocking_issues"] == []
 
 
 class TestQualityCheckMissingData:
     def test_missing_data(self):
         article = "# Title\n\nSome content without tables or data.\n"
         result = json.loads(quality_check(article))
-        assert result["checks"]["has_data"] is False
+        assert result["checks"]["has_data"]["pass"] is False
         assert "has_data" in result["failed_checks"]
+
+    def test_placeholder_blocks(self):
+        article = (
+            "# Title\n\n"
+            "```bash\necho hello\n```\n\n"
+            "| col1 | col2 |\n|--|--|\n| a | 0.6831 |\n\n"
+            "预期输出: xxx\n"
+            "边界 limit\n费用 $1 cleanup\n"
+            "## 踩坑 / pitfall\n\nGot error AccessDenied\n"
+            "校准 aws-knowledge\niam policy\n"
+        )
+        result = json.loads(quality_check(article))
+        assert result["checks"]["has_data"]["pass"] is False
+        assert any("placeholder" in issue.lower() for issue in result["blocking_issues"])
 
 
 class TestQualityCheckMissingIam:
@@ -83,15 +98,30 @@ class TestQualityCheckMissingIam:
         article = (
             "# Title\n\n"
             "```bash\necho hello\n```\n\n"
-            "| col1 | col2 |\n"
+            "| col1 | col2 |\n|--|--|\n| a | 0.6831 |\n\n"
             "边界 limit\n"
             "费用 $1 cleanup\n"
-            "踩坑 pitfall\n"
+            "## 踩坑 / pitfall\n\nGot error AccessDenied\n"
             "校准 aws-knowledge\n"
         )
         result = json.loads(quality_check(article))
-        assert result["checks"]["has_iam"] is False
+        assert result["checks"]["has_iam"]["pass"] is False
         assert "has_iam" in result["failed_checks"]
+
+
+class TestQualityCheckPitfallSpeculative:
+    def test_speculative_pitfall_fails(self):
+        article = (
+            "# Title\n\n"
+            "```bash\necho hello\n```\n\n"
+            "| col1 | col2 |\n|--|--|\n| a | 0.6831 |\n\n"
+            "边界 limit\n费用 $1 cleanup\n"
+            "## 踩坑 / pitfall\n\n可能会出现问题，建议注意。\n"
+            "校准 aws-knowledge\niam policy\n"
+        )
+        result = json.loads(quality_check(article))
+        assert result["checks"]["has_pitfall"]["pass"] is False
+        assert any("speculative" in issue.lower() for issue in result["blocking_issues"])
 
 
 # ---------------------------------------------------------------------------
