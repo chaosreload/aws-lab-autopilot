@@ -65,7 +65,7 @@ def write_article(task_id: str, content: str, title: str = "") -> str:
 
     key = f"tasks/{task_id}/article.md"
     s3 = boto3.client("s3")
-    s3.put_object(Bucket=bucket, Key=key, Body=content.encode("utf-8"), ContentType="text/markdown")
+    s3.put_object(Bucket=bucket, Key=key, Body=content.encode("utf-8"), ContentType="text/plain; charset=utf-8")
     s3_path = f"s3://{bucket}/{key}"
     logger.info("Wrote article to %s", s3_path)
 
