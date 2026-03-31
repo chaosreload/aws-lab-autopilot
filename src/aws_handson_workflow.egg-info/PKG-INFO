@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: aws-handson-workflow
+Version: 0.1.0
+Summary: Automated AWS Hands-on Lab article production pipeline
+Requires-Python: >=3.12
+License-File: LICENSE
+Requires-Dist: boto3
+Requires-Dist: pydantic
+Requires-Dist: strands-agents
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: pytest-cov; extra == "dev"
+Requires-Dist: moto; extra == "dev"
+Requires-Dist: ruff; extra == "dev"
+Dynamic: license-file

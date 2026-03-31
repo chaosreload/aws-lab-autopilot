@@ -1,0 +1,9 @@
+boto3
+pydantic
+strands-agents
+
+[dev]
+pytest
+pytest-cov
+moto
+ruff

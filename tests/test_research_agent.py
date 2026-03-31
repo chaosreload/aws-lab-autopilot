@@ -166,3 +166,62 @@ class TestRunResearch:
 
         assert result["verdict"] == "skip"
         assert "error" in result
+
+
+class TestListBedrockModels:
+    @patch("src.agents.research.tools.boto3")
+    @patch.dict("os.environ", {"AWS_DEFAULT_REGION": "us-east-1"})
+    def test_returns_models(self, mock_boto3):
+        from src.agents.research.tools import list_bedrock_models
+
+        mock_bedrock = MagicMock()
+        mock_boto3.client.return_value = mock_bedrock
+        mock_bedrock.list_foundation_models.return_value = {
+            "modelSummaries": [
+                {
+                    "modelId": "amazon.nova-2-multimodal-embeddings-v1:0",
+                    "modelName": "Amazon Nova Multimodal Embeddings",
+                    "modelLifecycle": {"status": "ACTIVE"},
+                    "inputModalities": ["TEXT", "IMAGE"],
+                    "outputModalities": ["EMBEDDING"],
+                },
+            ]
+        }
+
+        result_json = list_bedrock_models(output_modality="EMBEDDING", provider="amazon")
+        result = json.loads(result_json)
+
+        assert result["count"] == 1
+        assert result["models"][0]["modelId"] == "amazon.nova-2-multimodal-embeddings-v1:0"
+        assert result["models"][0]["status"] == "ACTIVE"
+        mock_bedrock.list_foundation_models.assert_called_once_with(
+            byOutputModality="EMBEDDING", byProvider="amazon"
+        )
+
+    @patch("src.agents.research.tools.boto3")
+    def test_handles_api_error(self, mock_boto3):
+        from src.agents.research.tools import list_bedrock_models
+
+        mock_bedrock = MagicMock()
+        mock_boto3.client.return_value = mock_bedrock
+        mock_bedrock.list_foundation_models.side_effect = Exception("AccessDenied")
+
+        result_json = list_bedrock_models()
+        result = json.loads(result_json)
+
+        assert "error" in result
+        assert result["models"] == []
+
+    @patch("src.agents.research.tools.boto3")
+    def test_no_filters(self, mock_boto3):
+        from src.agents.research.tools import list_bedrock_models
+
+        mock_bedrock = MagicMock()
+        mock_boto3.client.return_value = mock_bedrock
+        mock_bedrock.list_foundation_models.return_value = {"modelSummaries": []}
+
+        result_json = list_bedrock_models()
+        result = json.loads(result_json)
+
+        assert result["count"] == 0
+        mock_bedrock.list_foundation_models.assert_called_once_with()

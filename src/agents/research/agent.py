@@ -9,7 +9,13 @@ from botocore.config import Config
 from strands import Agent
 from strands.models.bedrock import BedrockModel
 
-from src.agents.research.tools import aws_knowledge_read, aws_knowledge_region, memory_search, write_notes
+from src.agents.research.tools import (
+    aws_knowledge_read,
+    aws_knowledge_region,
+    list_bedrock_models,
+    memory_search,
+    write_notes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +45,16 @@ SYSTEM_PROMPT = """\
 1. 用 aws_knowledge_read 搜索该公告相关的 AWS 文档，理解技术细节
 2. 判断 verdict（go/skip），并写出理由
 3. 如果是 go：
-   - 设计 3-5 个测试用例（T1=核心功能验证P0, T2=边界条件P0, T3=对比测试P1...）
-   - 推导最小 IAM Policy（只包含测试需要的 actions）
-   - 列出涉及的 AWS services（用 CLI service 名，如 bedrock-runtime，不是 Amazon Bedrock）
+   a. **如果涉及 Bedrock 模型（embedding、inference、foundation model）**：
+      - 必须先调用 list_bedrock_models 查询实际可用的模型列表
+      - 从返回结果中找到匹配的模型 ID（status=ACTIVE 的那个）
+      - 在 test_matrix 的 api_hints 里使用确认后的 model ID
+      - 注意：AWS 文档中的 model ID 可能是预览版或已更名，实际 ID 以 list_bedrock_models 返回为准
+   b. 设计 3-5 个测试用例（T1=核心功能验证P0, T2=边界条件P0, T3=对比测试P1...）
+      - 每个测试用例必须包含具体的 API 调用参数（api_hints 字段），不能只写描述
+      - 对于 Bedrock 模型测试，api_hints 里的 model_id 必须是已用 list_bedrock_models 确认过的
+   c. 推导最小 IAM Policy（只包含测试需要的 actions）
+   d. 列出涉及的 AWS services（用 CLI service 名，如 bedrock-runtime，不是 Amazon Bedrock）
 4. 用 write_notes 写入详细研究笔记（包含：技术分析、测试设计、IAM 推导、注意事项）
 
 ## 输出格式（严格 JSON，不要 markdown fencing）
@@ -50,9 +63,19 @@ SYSTEM_PROMPT = """\
   "verdict": "go",
   "notes_path": "s3://...",
   "test_matrix": [
-    {"id": "T1", "name": "核心 API 调用验证", "priority": "P0"},
-    {"id": "T2", "name": "边界条件测试", "priority": "P0"},
-    {"id": "T3", "name": "与旧版/相近功能对比", "priority": "P1"}
+    {
+      "id": "T1",
+      "name": "核心 API 调用验证",
+      "priority": "P0",
+      "api_hints": {
+        "service": "bedrock-runtime",
+        "operation": "invoke_model",
+        "model_id": "amazon.nova-2-multimodal-embeddings-v1:0",
+        "request_body": {"schemaVersion": "nova-multimodal-embed-v1", "taskType": "SINGLE_EMBEDDING", "singleEmbeddingParams": {"embeddingPurpose": "GENERIC_INDEX", "embeddingDimension": 256, "text": {"truncationMode": "END", "value": "test"}}}
+      }
+    },
+    {"id": "T2", "name": "边界条件测试", "priority": "P0", "api_hints": {}},
+    {"id": "T3", "name": "与旧版/相近功能对比", "priority": "P1", "api_hints": {}}
   ],
   "iam_policy": {
     "Version": "2012-10-17",
@@ -61,9 +84,14 @@ SYSTEM_PROMPT = """\
   "services": ["bedrock-runtime", "cloudwatch", "s3"]
 }
 
+## 关键约束
+
+- test_matrix 里的 api_hints.model_id 必须来自 list_bedrock_models 的返回值，不能凭经验填写
+- 如果 list_bedrock_models 里找不到相关模型（status 不是 ACTIVE），说明该模型在当前账户/区域不可用，需要在 notes 里记录这个限制，但仍然可以给 go（Execute Agent 会遇到 ValidationException 并标记为 "model not available"）
+
 ## 示例判断
 
-- "Amazon Nova Multimodal Embeddings GA" → go（新模型，可以调 bedrock-runtime InvokeModel 生成 embedding 验证）
+- "Amazon Nova Multimodal Embeddings GA" → go（先调 list_bedrock_models(output_modality="EMBEDDING") 确认 model ID，实际是 amazon.nova-2-multimodal-embeddings-v1:0，然后设计 embedding 验证用例）
 - "Amazon Bedrock TTFT CloudWatch metrics" → go（新指标，可以调 bedrock-runtime + cloudwatch 验证）
 - "Amazon S3 Express One Zone available in ap-southeast-1" → skip（纯区域扩展）
 - "AWS Lambda now supports Python 3.13" → go（runtime 更新，可以创建函数验证新 runtime）
@@ -83,7 +111,7 @@ def _create_agent() -> Agent:
     )
     return Agent(
         model=model,
-        tools=[aws_knowledge_read, aws_knowledge_region, write_notes, memory_search],
+        tools=[aws_knowledge_read, aws_knowledge_region, list_bedrock_models, write_notes, memory_search],
         system_prompt=SYSTEM_PROMPT,
     )
 
@@ -104,6 +132,8 @@ def run_research(task_id: str, url: str) -> dict:
         f"Task ID: {task_id}\n"
         f"URL: {url}\n\n"
         f"请先用 aws_knowledge_read 搜索相关文档了解技术细节，然后给出 verdict 和完整的 Lab 计划。\n"
+        f"如果公告涉及 Bedrock 模型，务必先调用 list_bedrock_models 确认实际可用的 model ID，"
+        f"不要凭文档中的 model ID 直接填写（文档可能有误或使用了旧版/预览版 ID）。\n"
         f"记住：What's New 公告页面本身不是教程，但里面描述的新功能通常都有对应的 API 可以验证。"
     )
 
