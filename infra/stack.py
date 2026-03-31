@@ -228,7 +228,16 @@ class AutopilotStack(cdk.Stack):
             resources=[
                 f"arn:aws:bedrock:us-east-1:{cdk.Aws.ACCOUNT_ID}:inference-profile/us.anthropic.*",
                 f"arn:aws:bedrock:*::foundation-model/anthropic.*",
+                f"arn:aws:bedrock:*::foundation-model/amazon.*",
+                f"arn:aws:bedrock:us-east-1:{cdk.Aws.ACCOUNT_ID}:inference-profile/us.amazon.*",
             ],
+        ))
+
+        # ListFoundationModels: Research Agent verifies actual model IDs to prevent
+        # Execute Agent from using stale/wrong IDs from documentation
+        sqs_handler.add_to_role_policy(iam.PolicyStatement(
+            actions=["bedrock:ListFoundationModels"],
+            resources=["*"],
         ))
 
         # SqsHandler needs IAM permissions for Execute Agent scoped roles
