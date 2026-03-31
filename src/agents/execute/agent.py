@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 import logging
 
 from botocore.config import Config
@@ -89,14 +91,20 @@ def _build_prompt(task_id: str, phase: str, research_result: dict) -> str:
     iam_policy = json.dumps(research_result.get("iam_policy", {}), ensure_ascii=False)
     services = ", ".join(research_result.get("services", []))
 
+    num_tests = len(research_result.get("test_matrix", []))
     return (
         f"Task ID: {task_id}\n"
         f"Phase: {phase}\n"
         f"Services: {services}\n"
         f"IAM Policy: {iam_policy}\n"
         f"Test Matrix: {test_matrix}\n\n"
-        f"Execute all tests in the matrix for the '{phase}' round. "
-        f"Return the result as a JSON object."
+        f"Execute the {num_tests} tests in the matrix for the '{phase}' round.\n"
+        f"STRICT RULES:\n"
+        f"1. Run each test ONCE. Do not repeat the same test.\n"
+        f"2. After completing all {num_tests} tests, call write_execute_log ONCE, then return the JSON result.\n"
+        f"3. Maximum tool calls: {num_tests * 3 + 5}. Stop immediately when you reach this limit.\n"
+        f"4. Do NOT run additional exploratory tests beyond the matrix.\n"
+        f"Return format: JSON object with test_results, final_iam_policy, permissions_added, pitfalls, cost_actual."
     )
 
 
@@ -133,11 +141,19 @@ def run_execute(task_id: str, research_result: dict) -> dict:
     reset_evidence()
     agent = _create_agent()
 
-    # Round 1: Explore
+    # Round 1: Explore (max 360s)
     logger.info("Starting explore round for task=%s", task_id)
     explore_prompt = _build_prompt(task_id, "explore", research_result)
-    explore_result = agent(explore_prompt)
-    explore_data = _parse_agent_response(str(explore_result))
+    explore_result_container = {}
+    def _run_explore():
+        explore_result_container["result"] = agent(explore_prompt)
+    t = threading.Thread(target=_run_explore)
+    t.start()
+    t.join(timeout=360)
+    if t.is_alive():
+        logger.warning("Explore round timed out after 360s for task=%s", task_id)
+        explore_result_container["result"] = "{}"
+    explore_data = _parse_agent_response(str(explore_result_container.get("result", "{}")))
     logger.info("Explore round completed for task=%s", task_id)
 
     # Round 2: Verify (fresh agent for clean context)
@@ -155,8 +171,17 @@ def run_execute(task_id: str, research_result: dict) -> dict:
             f"{json.dumps(explore_data['pitfalls'], ensure_ascii=False)}"
         )
 
-    verify_result = agent(verify_prompt)
-    verify_data = _parse_agent_response(str(verify_result))
+    # Verify round (max 360s)
+    verify_result_container = {}
+    def _run_verify():
+        verify_result_container["result"] = agent(verify_prompt)
+    t2 = threading.Thread(target=_run_verify)
+    t2.start()
+    t2.join(timeout=360)
+    if t2.is_alive():
+        logger.warning("Verify round timed out after 360s for task=%s", task_id)
+        verify_result_container["result"] = "{}"
+    verify_data = _parse_agent_response(str(verify_result_container.get("result", "{}")))
     logger.info("Verify round completed for task=%s", task_id)
 
     # Merge results: verify round is authoritative for test_results
