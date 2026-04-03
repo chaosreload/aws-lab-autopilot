@@ -145,6 +145,11 @@ Estimated Cost: $X.XX USD
 OUTPUT FORMAT — strict JSON, no markdown fencing
 ═══════════════════════════════════════════════════════════
 
+CRITICAL: All values in the JSON output MUST be valid JSON string literals. Never write Python
+expressions (no + concatenation, no * repetition, no f-strings, no code). For boundary test cases
+that would require very long strings, use a short descriptive placeholder like "<65530_char_string>"
+or "<command_65536_chars>" instead.
+
 Return ONLY a JSON object (no ```json wrapper, no extra text):
 
 {
@@ -213,6 +218,16 @@ _DEFAULTS = {
 }
 
 
+_LOG_LINE_RE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+ ")
+
+
+def _strip_log_lines_and_parse(text: str) -> dict:
+    """Remove interleaved Python log lines from JSON text and parse."""
+    lines = text.splitlines()
+    cleaned = [line for line in lines if not _LOG_LINE_RE.match(line)]
+    return json.loads("\n".join(cleaned))
+
+
 def _parse_json_response(text: str) -> dict:
     """Extract JSON from agent text response, handling preamble text and markdown fences."""
     # Try to find a fenced JSON block first
@@ -247,10 +262,18 @@ def _parse_json_response(text: str) -> dict:
         elif ch == "}":
             depth -= 1
             if depth == 0:
-                return json.loads(text[brace_pos : i + 1])
+                candidate = text[brace_pos : i + 1]
+                try:
+                    return json.loads(candidate)
+                except json.JSONDecodeError:
+                    # Try stripping interleaved Python log lines
+                    return _strip_log_lines_and_parse(candidate)
 
-    # Fallback: try from the first brace to end
-    return json.loads(text[brace_pos:])
+    # Fallback: try from the first brace to end, with log-line stripping
+    try:
+        return json.loads(text[brace_pos:])
+    except json.JSONDecodeError:
+        return _strip_log_lines_and_parse(text[brace_pos:])
 
 
 def run_research(task_id: str, url: str) -> dict:
