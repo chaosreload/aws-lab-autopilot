@@ -49,28 +49,17 @@ class ReworkType(str, Enum):
 # Research Agent models
 # ---------------------------------------------------------------------------
 
-class InfrastructureHints(BaseModel):
-    resources_needed: list[str] = Field(default_factory=list)
-    estimated_wait_minutes: int = 0
-    cleanup_on_failure: bool = True
-
-
-class ValidationCriteria(BaseModel):
-    type: str = ""  # count_match | latency_bound | response_structure | data_integrity
-    expected: str = ""
-    tolerance: Optional[str] = None
-
-
 class TestItem(BaseModel):
     id: str
     name: str
+    description: str = ""
     priority: str = "P0"
     api_hints: dict = Field(default_factory=dict)
     # Gap 4 fields
     type: str = "api_call"  # api_call | infrastructure | data_validation | cdc
     prerequisites: list[str] = Field(default_factory=list)
-    infrastructure_hints: Optional[InfrastructureHints] = None
-    validation_criteria: Optional[ValidationCriteria] = None
+    infrastructure_hints: dict = Field(default_factory=dict)
+    validation_criteria: dict = Field(default_factory=dict)
 
 
 class ResearchResult(BaseModel):
@@ -81,6 +70,8 @@ class ResearchResult(BaseModel):
     services: list[str] = Field(default_factory=list)
     # Gap 4 / Gap 6: task type classification
     task_type: TaskType = TaskType.API_CALL
+    task_type_reason: str = ""
+    estimated_execution_minutes: int = 0
 
 
 # ---------------------------------------------------------------------------

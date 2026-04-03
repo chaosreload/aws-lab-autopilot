@@ -8,6 +8,7 @@ import re
 
 from botocore.config import Config
 from strands import Agent
+from strands.models.bedrock import BedrockModel
 
 from src.agents.research.tools import (
     aws_knowledge_read,
@@ -68,6 +69,8 @@ TASK TYPE CLASSIFICATION
   - infrastructure: Requires creating, waiting for, and cleaning up AWS resources. Expected 30-120 min.
   - mixed: Some tests are direct API calls, others require infrastructure setup.
 
+You MUST include "task_type_reason" in your output — a one-line explanation of why you chose this task_type.
+
 ═══════════════════════════════════════════════════════════
 TEST MATRIX DESIGN — Three Principles
 ═══════════════════════════════════════════════════════════
@@ -94,8 +97,14 @@ Test matrix total ≤ 8 items, structured as:
   Type C — Boundary value tests (merge into 1):
     T5: Combined boundary tests — empty, oversized, type errors (P1)
 
-Every test item MUST include api_hints with at least service and operation.
-Every test item MUST include validation_criteria with type and expected.
+Every test item MUST include ALL of these fields:
+  - "type": one of api_call | infrastructure | data_validation | cdc
+  - "prerequisites": list of test IDs that must run first ([] for independent tests)
+  - "api_hints": dict with at least service and operation
+  - "infrastructure_hints": dict with resources_needed, estimated_wait_minutes, cleanup_on_failure ({} for pure api_call tests)
+  - "validation_criteria": dict with "type" and "expected" fields
+  - "description": one-line summary of what the test verifies
+
 If the feature involves Bedrock models, you MUST call list_bedrock_models first and use the confirmed model_id in api_hints.
 
 ═══════════════════════════════════════════════════════════
@@ -109,6 +118,7 @@ The content you pass to write_notes MUST follow this structure:
 
 **Task ID**: {task_id}
 **Region**: us-east-1
+**Account**: (use STS get-caller-identity if available, otherwise N/A)
 **Source URL**: {url}
 **Started**: {ISO 8601 timestamp}
 
@@ -117,7 +127,10 @@ The content you pass to write_notes MUST follow this structure:
 Verdict: go/skip
 Reason: one-line summary
 Task Type: api_call / infrastructure / mixed
+Task Type Reason: one-line explanation
+Complexity: S / M / L
 Estimated Execution: X minutes
+Estimated Cost: $X.XX USD
 
 ## 2. Deep Research
 
@@ -137,18 +150,22 @@ Return ONLY a JSON object (no ```json wrapper, no extra text):
 {
   "verdict": "go",
   "task_type": "api_call",
+  "task_type_reason": "All tests use InvokeModel API, no resource creation needed",
   "notes_path": "s3://...",
   "test_matrix": [
     {
       "id": "T1",
       "name": "...",
+      "description": "one-line summary of what this test verifies",
       "priority": "P0",
       "type": "api_call",
+      "prerequisites": [],
       "api_hints": {
         "service": "...",
         "operation": "...",
         "request_body": {}
       },
+      "infrastructure_hints": {},
       "validation_criteria": {
         "type": "response_structure",
         "expected": "..."
@@ -167,6 +184,7 @@ If verdict is "skip", return:
 {
   "verdict": "skip",
   "task_type": "api_call",
+  "task_type_reason": "...",
   "notes_path": "",
   "test_matrix": [],
   "iam_policy": {},
@@ -186,6 +204,7 @@ TOOLS = [
 _DEFAULTS = {
     "verdict": "skip",
     "task_type": "api_call",
+    "task_type_reason": "",
     "notes_path": "",
     "test_matrix": [],
     "iam_policy": {},
@@ -195,12 +214,43 @@ _DEFAULTS = {
 
 
 def _parse_json_response(text: str) -> dict:
-    """Extract JSON from agent text response, stripping markdown fences if present."""
-    cleaned = text.strip()
-    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
-    cleaned = re.sub(r"\s*```$", "", cleaned)
-    cleaned = cleaned.strip()
-    return json.loads(cleaned)
+    """Extract JSON from agent text response, handling preamble text and markdown fences."""
+    # Try to find a fenced JSON block first
+    fence_match = re.search(r"```(?:json)?\s*(\{.*?})\s*```", text, re.DOTALL)
+    if fence_match:
+        return json.loads(fence_match.group(1))
+
+    # Find the first top-level JSON object in the text
+    brace_pos = text.find("{")
+    if brace_pos == -1:
+        raise ValueError("No JSON object found in response")
+
+    # Walk forward to find the matching closing brace
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(brace_pos, len(text)):
+        ch = text[i]
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return json.loads(text[brace_pos : i + 1])
+
+    # Fallback: try from the first brace to end
+    return json.loads(text[brace_pos:])
 
 
 def run_research(task_id: str, url: str) -> dict:
@@ -216,11 +266,14 @@ def run_research(task_id: str, url: str) -> dict:
     Raises:
         RuntimeError: If the agent response cannot be parsed as JSON.
     """
-    agent = Agent(
+    bedrock_model = BedrockModel(
         model_id="us.anthropic.claude-opus-4-6-v1",
+        boto_client_config=BEDROCK_CONFIG,
+    )
+    agent = Agent(
+        model=bedrock_model,
         system_prompt=SYSTEM_PROMPT,
         tools=TOOLS,
-        model_config=BEDROCK_CONFIG,
     )
 
     prompt = (
