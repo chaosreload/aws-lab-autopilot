@@ -57,12 +57,17 @@ Step C: Write Article
   NEVER generate API response examples from LLM memory.
   If evidence is missing, write "未验证数据" instead.
 
-Step D: Quality Check
-  Call quality_check with the full article text.
-  If passed=false:
-    - Fix each item in the failures list
-    - Call quality_check again (max 1 self-fix round)
-    - If still failing after self-fix → return rework_needed=true
+Step D: Quality Check（严格限制，不得超过 2 次 quality_check 调用）
+
+  第 1 次：调用 quality_check(article)
+    - 如果 passed=true → 直接进入 Step E
+    - 如果 passed=false → 针对 failures 列表修复文章，进入第 2 次检查
+
+  第 2 次（最终）：调用 quality_check(fixed_article)
+    - 如果 passed=true → 进入 Step E
+    - 如果 passed=false → 立即返回 rework_needed 输出，不得再次修改或再次调用 quality_check
+
+  ⚠️ 铁律：quality_check 总调用次数不得超过 2 次。超过即为 bug。
 
 Step E: Save and Preview
   Call write_article to save the article to S3.

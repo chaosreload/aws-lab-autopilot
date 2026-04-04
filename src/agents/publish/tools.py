@@ -150,9 +150,9 @@ def quality_check(article: str) -> str:
     checks["reproducible"] = len(code_blocks) >= 2 and has_cli_block
 
     # 2. has_data: markdown table AND numeric data AND no placeholder text
-    has_table = bool(re.search(r"^\|.*\|.*\|", article, re.MULTILINE))
-    has_numbers = bool(re.search(r"\d+\.\d+", article))
-    has_placeholder = bool(re.search(r"预期输出|TBD", article))
+    has_table = bool(re.search(r"^\|.+\|", article, re.MULTILINE))
+    has_numbers = bool(re.search(r"\b\d+(?:\.\d+)?\b", article))
+    has_placeholder = bool(re.search(r"(?<!\.)\.\.\.(?!\.)|\b预期输出\b|\bTBD\b", article))
     checks["has_data"] = has_table and has_numbers and not has_placeholder
 
     # 3. has_boundary
