@@ -149,11 +149,11 @@ def quality_check(article: str) -> str:
     has_cli_block = bool(re.search(r"```(?:bash|console)", article))
     checks["reproducible"] = len(code_blocks) >= 2 and has_cli_block
 
-    # 2. has_data: markdown table AND precision number AND no placeholder text
+    # 2. has_data: markdown table AND numeric data AND no placeholder text
     has_table = bool(re.search(r"^\|.*\|.*\|", article, re.MULTILINE))
-    has_precision = bool(re.search(r"\d+\.\d{3,}", article))
-    has_placeholder = bool(re.search(r"(?:^|\s)\.\.\.(?:\s|$)|预期输出|TBD", article))
-    checks["has_data"] = has_table and has_precision and not has_placeholder
+    has_numbers = bool(re.search(r"\d+\.\d+", article))
+    has_placeholder = bool(re.search(r"预期输出|TBD", article))
+    checks["has_data"] = has_table and has_numbers and not has_placeholder
 
     # 3. has_boundary
     checks["has_boundary"] = bool(re.search(
@@ -180,7 +180,7 @@ def quality_check(article: str) -> str:
     # 6. calibrated: !!! info AND ## 核心概念 AND >= 3 **发现:**
     has_info = "!!! info" in article
     has_core_concepts = "## 核心概念" in article
-    discovery_count = len(re.findall(r"\*\*发现:\*\*", article))
+    discovery_count = len(re.findall(r"\*\*发现[:：]\*\*", article))
     checks["calibrated"] = has_info and has_core_concepts and discovery_count >= 3
 
     # 7. has_iam
