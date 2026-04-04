@@ -12,6 +12,7 @@ from strands.models.bedrock import BedrockModel
 
 from src.agents.execute.tools import (
     aws_cli_execute,
+    aws_knowledge_read,
     cleanup_resources,
     iam_add_permission,
     memory_create,
@@ -78,7 +79,9 @@ When a command fails, classify the error and respond accordingly:
 
   ACCESS_DENIED → Call iam_add_permission with the needed action, then retry ONCE.
   RESOURCE_NOT_READY → Wait 10-30 seconds, then retry with backoff (max 3 retries).
-  UNSUPPORTED_OPERATION → Record the limitation, pivot to an alternative approach if possible.
+  UNSUPPORTED_OPERATION → Call aws_knowledge_read to search for the correct API name and
+    usage. Only pivot to an alternative approach AFTER confirming via documentation that the
+    intended API truly does not exist.
   CONFIGURATION_ERROR → Re-read the api_hints, generate a corrected command (v2, v3...), max 3 iterations.
   UNKNOWN → After 2 failed attempts, mark the test as "fail" and move on.
 
@@ -217,6 +220,7 @@ Return ONLY a JSON object (no ```json wrapper, no extra text):
 
 TOOLS = [
     aws_cli_execute,
+    aws_knowledge_read,
     iam_add_permission,
     write_execute_log,
     track_resource,

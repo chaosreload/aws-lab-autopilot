@@ -12,6 +12,7 @@ import boto3
 from strands import tool
 
 from src.agents.execute.safety_guard import SafetyGuard
+from src.aws.knowledge import read_documentation, search_documentation
 
 logger = logging.getLogger(__name__)
 
@@ -203,3 +204,42 @@ def memory_create(task_id: str, pitfall_desc: str, verified: bool) -> str:
     # Phase 2: persist to AgentCore Memory
     logger.info("memory_create (stub): task=%s verified=%s pitfall=%s", task_id, verified, pitfall_desc)
     return json.dumps({"status": "noted", "task_id": task_id, "pitfall": pitfall_desc})
+
+
+@tool
+def aws_knowledge_read(query: str) -> str:
+    """Search AWS official documentation for API details, usage examples, and constraints.
+
+    Use this tool when:
+    - An AWS CLI command returns UnknownOperationException or NoSuchOperation
+    - You need to confirm the correct API name, parameters, or response format
+    - You are unsure about service endpoints, required permissions, or request body schema
+
+    Args:
+        query: Natural language search query (e.g. "InvokeAgentRuntimeCommand API boto3").
+
+    Returns:
+        JSON string with search results containing title, url, and excerpt for each match.
+    """
+    try:
+        results = search_documentation(query, limit=5)
+        items = []
+        for r in results:
+            url = r.get("url", "")
+            if url:
+                detail = read_documentation(url, max_length=10000)
+                items.append({
+                    "title": r.get("title", r.get("text", "")),
+                    "url": url,
+                    "excerpt": detail[:3000] if isinstance(detail, str) else str(detail)[:3000],
+                })
+            else:
+                items.append({
+                    "title": r.get("title", r.get("text", "")),
+                    "url": "",
+                    "excerpt": r.get("text", ""),
+                })
+        return json.dumps({"results": items}, ensure_ascii=False)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("aws_knowledge_read failed: %s", exc)
+        return f"Documentation search unavailable: {exc}"
