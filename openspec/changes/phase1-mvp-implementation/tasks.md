@@ -25,13 +25,14 @@
 - [x] 3.8 aws_knowledge_read tool（遇到 API 问题时查文档，防止错误 pivot）
 
 ## Publish Agent
-- [ ] 4.1 Strands Agent 骨架 + AgentCore Runtime 接入
-- [ ] 4.2 aws_knowledge_read tool（校准用）
-- [ ] 4.3 read_s3 tool
-- [ ] 4.4 write_article tool
-- [ ] 4.5 quality_check tool（7 条红线）
-- [ ] 4.6 git_push tool（GitHub 发布）
-- [ ] 4.7 memory_search tool
+- [x] 4.1 Strands Agent 骨架 + AgentCore Runtime 接入
+- [x] 4.2 read_research_notes + read_execute_results tools（S3 读取）
+- [x] 4.3 write_article + generate_preview_url tools
+- [x] 4.4 quality_check tool（7 条红线）
+- [x] 4.5 git_push tool（GitHub 发布）— stub，仅由 /approve 接口触发
+- [x] 4.6 memory_search_publish tool — stub，返回空结果
+- [x] 4.7 Publish Agent 提示词（9 章节强制结构 + 校准 workflow）
+- [x] 4.8 aws_knowledge_read_publish tool（校准用，最少调用 3 次）
 
 ## Orchestration
 - [ ] 5.1 SQS Handler Lambda（Step Functions ↔ AgentCore 桥接）
