@@ -20,7 +20,7 @@
 - [x] 3.3 iam_add_permission tool（动态调权）— stub，记录但不执行
 - [x] 3.4 track_resource + cleanup_resource tools
 - [x] 3.5 write_execute_log tool（S3 测试日志）
-- [ ] 3.6 memory_create tool（踩坑记录）
+- [x] 3.6 memory_create tool（踩坑记录）— stub，记录但不持久化
 - [x] 3.7 双轮执行流程（explore → cleanup → verify → cleanup）
 
 ## Publish Agent
@@ -61,8 +61,8 @@
 | 状态 | 数量 | 比例 |
 |------|------|------|
 | ✅ 完整实现 | 13 | 43% |
-| 🔧 部分实现（stub） | 2 | 7% |
-| ❌ 未实现 | 15 | 50% |
+| 🔧 部分实现（stub） | 3 | 10% |
+| ❌ 未实现 | 14 | 47% |
 | **总计** | **30** | — |
 
 ### 2026-04-04 审计变更说明

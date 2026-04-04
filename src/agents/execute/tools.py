@@ -186,3 +186,20 @@ def cleanup_resources(task_id: str) -> str:
     _TRACKED_RESOURCES[:] = [r for r in _TRACKED_RESOURCES if r["task_id"] != task_id]
     logger.info("Cleanup: returning %d tracked resources for task %s", len(resources), task_id)
     return json.dumps({"resources_to_cleanup": resources, "count": len(resources)})
+
+
+@tool
+def memory_create(task_id: str, pitfall_desc: str, verified: bool) -> str:
+    """Record a pitfall to persistent memory (Phase 1 stub).
+
+    Args:
+        task_id: The task identifier.
+        pitfall_desc: One-line description of the pitfall.
+        verified: Whether the pitfall has stdout/stderr evidence.
+
+    Returns:
+        JSON string confirming the pitfall was noted.
+    """
+    # Phase 2: persist to AgentCore Memory
+    logger.info("memory_create (stub): task=%s verified=%s pitfall=%s", task_id, verified, pitfall_desc)
+    return json.dumps({"status": "noted", "task_id": task_id, "pitfall": pitfall_desc})

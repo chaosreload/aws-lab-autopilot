@@ -14,6 +14,7 @@ from src.agents.execute.tools import (
     aws_cli_execute,
     cleanup_resources,
     iam_add_permission,
+    memory_create,
     track_resource,
     write_execute_log,
 )
@@ -220,6 +221,7 @@ TOOLS = [
     write_execute_log,
     track_resource,
     cleanup_resources,
+    memory_create,
 ]
 
 _DEFAULTS = {
