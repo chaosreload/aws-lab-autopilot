@@ -22,6 +22,7 @@
 - [x] 3.5 write_execute_log tool（S3 测试日志）
 - [x] 3.6 memory_create tool（踩坑记录）— stub，记录但不持久化
 - [x] 3.7 双轮执行流程（explore → cleanup → verify → cleanup）
+- [x] 3.8 aws_knowledge_read tool（遇到 API 问题时查文档，防止错误 pivot）
 
 ## Publish Agent
 - [ ] 4.1 Strands Agent 骨架 + AgentCore Runtime 接入
