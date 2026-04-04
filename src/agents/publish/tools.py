@@ -152,8 +152,20 @@ def quality_check(article: str) -> str:
     # 2. has_data: markdown table AND numeric data AND no placeholder text
     has_table = bool(re.search(r"^\|.+\|", article, re.MULTILINE))
     has_numbers = bool(re.search(r"\b\d+(?:\.\d+)?\b", article))
-    has_placeholder = bool(re.search(r"(?<!\.)\.\.\.(?!\.)|\b预期输出\b|\bTBD\b", article))
-    checks["has_data"] = has_table and has_numbers and not has_placeholder
+    # has_placeholder: only detect standalone ... in prose, skip code blocks and backtick spans
+    _in_code = False
+    _has_ph = False
+    for _line in article.split("\n"):
+        _s = _line.strip()
+        if _s.startswith("```"):
+            _in_code = not _in_code
+        if _in_code:
+            continue
+        _cleaned = re.sub(r"`[^`]*`", "", _s)
+        if re.search(r"(?<!\.)\.\.\.(?!\.)", _cleaned) or re.search(r"\b预期输出\b|\bTBD\b", _cleaned):
+            _has_ph = True
+            break
+    checks["has_data"] = has_table and has_numbers and not _has_ph
 
     # 3. has_boundary
     checks["has_boundary"] = bool(re.search(
