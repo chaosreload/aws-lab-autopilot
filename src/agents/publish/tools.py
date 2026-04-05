@@ -228,7 +228,7 @@ def write_article(task_id: str, content: str, title: str = "") -> str:
 
     s3 = boto3.client("s3")
     body = content.encode("utf-8")
-    s3.put_object(Bucket=bucket, Key=key, Body=body, ContentType="text/markdown")
+    s3.put_object(Bucket=bucket, Key=key, Body=body, ContentType="text/plain; charset=utf-8")
 
     s3_path = f"s3://{bucket}/{key}"
     if title:
