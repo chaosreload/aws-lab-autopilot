@@ -189,11 +189,12 @@ def quality_check(article: str) -> str:
     ))
     checks["has_pitfall"] = has_warning and has_error_evidence and not has_speculative
 
-    # 6. calibrated: !!! info AND ## 核心概念 AND >= 3 **发现:**
+    # 6. calibrated: !!! info AND ## 核心概念 AND >= 3 **发现:** AND ## 参考链接
     has_info = "!!! info" in article
     has_core_concepts = "## 核心概念" in article
     discovery_count = len(re.findall(r"\*\*发现[:：]\*\*", article))
-    checks["calibrated"] = has_info and has_core_concepts and discovery_count >= 3
+    has_refs = "## 参考链接" in article
+    checks["calibrated"] = has_info and has_core_concepts and discovery_count >= 3 and has_refs
 
     # 7. has_iam
     checks["has_iam"] = bool(re.search(

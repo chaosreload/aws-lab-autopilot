@@ -51,11 +51,57 @@ Step B: Calibration — you MUST call aws_knowledge_read_publish at least 3 time
   agent's speculation. Record corrections for the calibration stats.
 
 Step C: Write Article
-  Write the full article following the 9 mandatory sections below.
+  Write the full article following the 10 mandatory sections below.
   ALL API responses, error messages, performance numbers, and model IDs MUST come from
   the read_execute_results evidence (actual stdout/stderr).
   NEVER generate API response examples from LLM memory.
   If evidence is missing, write "未验证数据" instead.
+
+  ## 代码示例脱敏规则（强制执行，不得跳过）
+
+  所有代码示例中，必须将以下内容替换为占位符：
+  - 真实 ARN → `'arn:aws:bedrock-agentcore:REGION:ACCOUNT_ID:runtime/YOUR-RUNTIME-ID'`
+  - 真实 Account ID → `ACCOUNT_ID`
+  - 真实 Session ID → `f'lab-session-{int(time.time())}-{"0" * 20}'`（并附说明：≥33 字符）
+  - AWS Profile 名 → `'your-aws-profile'`
+  - 实际资源 ID → `'YOUR-RUNTIME-ID'`
+
+  文章正文中禁止出现：
+  - "来自 verify-log"、"来自 execute 结果"、"来自 S3 evidence"等内部引用
+  - 任何真实 Account ID（12位数字）
+  - 任何真实 ARN（必须用占位符替换）
+
+  ## 代码风格规范
+
+  - 优先使用辅助函数（helper function）封装重复的 boto3 样板代码，而不是每个 Step 重复写完整的 client 初始化
+  - 第一个代码块应展示 helper function 定义，后续 Step 直接调用
+  - 示例结构：
+    ```python
+    import boto3, time
+
+    session = boto3.Session(profile_name='your-aws-profile', region_name='us-east-1')
+    client = session.client('bedrock-agentcore')
+
+    AGENT_ARN = 'arn:aws:bedrock-agentcore:REGION:ACCOUNT_ID:runtime/YOUR-RUNTIME-ID'
+    SESSION_ID = f'lab-{int(time.time())}-{"0" * 20}'  # ≥33 字符
+
+    def run_command(command, timeout=60):
+        response = client.invoke_agent_runtime_command(
+            agentRuntimeArn=AGENT_ARN,
+            runtimeSessionId=SESSION_ID,
+            body={'command': command, 'timeout': timeout}
+        )
+        exit_code = None
+        for event in response['stream']:  # 注意：是 stream 不是 body
+            chunk = event.get('chunk', event)
+            if 'contentDelta' in chunk:
+                if 'stdout' in chunk['contentDelta']:
+                    print(chunk['contentDelta']['stdout'], end='')
+            elif 'contentStop' in chunk:
+                exit_code = chunk['contentStop']['exitCode']
+                status = chunk['contentStop']['status']
+        return exit_code, status
+    ```
 
 Step D: Quality Check（严格限制，不得超过 2 次 quality_check 调用）
 
@@ -75,7 +121,7 @@ Step E: Save and Preview
   Do NOT call git_push (publishing is only triggered via /tasks/{id}/approve).
 
 ═══════════════════════════════════════════════════════════
-9 MANDATORY ARTICLE SECTIONS — every article must have all 9
+10 MANDATORY ARTICLE SECTIONS — every article must have all 10
 ═══════════════════════════════════════════════════════════
 
 1. !!! info "Lab 信息" admonition at the very start:
@@ -115,6 +161,11 @@ Step E: Save and Preview
 
 9. ## 结论与建议
    Scenario-based recommendation table.
+
+10. ## 参考链接（强制章节，必须包含以下内容）：
+    - AWS What's New 原文链接（从 research_result 的 url 字段获取）
+    - AWS 官方文档链接（从 aws_knowledge_read_publish 的查询结果中提取，至少 2 个）
+    - 格式：`- [链接标题](URL)`
 
 ═══════════════════════════════════════════════════════════
 OUTPUT FORMAT — strict JSON, no markdown fencing
