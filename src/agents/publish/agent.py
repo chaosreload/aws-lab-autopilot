@@ -137,8 +137,8 @@ Step E: Save and Preview
 
 3. Step sections (## Step 1, ## Step 2, etc.)
    Each Step's FIRST code block must be AWS CLI (```bash).
-   Each Step MUST end with a **发现:** paragraph.
-   Minimum 3 Steps = minimum 3 **发现:** blocks.
+   Each Step MUST end with a **发现** line. Format: **发现**：内容 or **发现:** 内容 (colon inside or outside bold are both acceptable).
+   Minimum 3 Steps = minimum 3 **发现** blocks.
 
 4. ## 测试结果
    Summary table with one row per Step (test ID, name, result, key measurement).
