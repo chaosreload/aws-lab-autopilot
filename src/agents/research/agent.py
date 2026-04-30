@@ -290,7 +290,7 @@ def run_research(task_id: str, url: str) -> dict:
         RuntimeError: If the agent response cannot be parsed as JSON.
     """
     bedrock_model = BedrockModel(
-        model_id="us.anthropic.claude-opus-4-6-v1",
+        model_id="global.anthropic.claude-opus-4-6-v1",
         boto_client_config=BEDROCK_CONFIG,
     )
     agent = Agent(

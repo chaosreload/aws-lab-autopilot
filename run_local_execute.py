@@ -27,6 +27,13 @@ def main():
         print("\n=== Research Result ===")
         print(json.dumps(research_result, indent=2, ensure_ascii=False))
 
+        # Save research result for inspection
+        os.makedirs("output", exist_ok=True)
+        research_path = f"output/{task_id}-research.json"
+        with open(research_path, "w") as f:
+            json.dump(research_result, f, indent=2, ensure_ascii=False)
+        print(f"Saved research to {research_path}")
+
         if research_result.get("verdict") != "go":
             print("\nVerdict is not 'go' — skipping execute.")
             return
