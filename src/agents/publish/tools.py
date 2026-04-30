@@ -202,6 +202,17 @@ def quality_check(article: str) -> str:
         article,
     ))
 
+    # 8. has_background: ## 背景 section exists
+    checks["has_background"] = "## 背景" in article
+
+    # 9. has_prerequisites: ## 前置条件 section exists
+    checks["has_prerequisites"] = "## 前置条件" in article
+
+    # 10. no_internal_ids: headings must not contain internal test IDs (T0, T1, T2...)
+    heading_lines = re.findall(r"^#{1,3} .+$", article, re.MULTILINE)
+    has_internal_ids = any(re.search(r"\bT\d+\b", h) for h in heading_lines)
+    checks["no_internal_ids"] = not has_internal_ids
+
     failures = [name for name, passed in checks.items() if not passed]
     result = {
         "passed": len(failures) == 0,

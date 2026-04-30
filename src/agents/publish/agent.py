@@ -49,9 +49,15 @@ Step B: Calibration — you MUST call aws_knowledge_read_publish at least 3 time
   3. Verify service limits (quotas, max sizes, timeouts, supported regions)
   If calibration reveals errors in the execute results, trust the documentation over the
   agent's speculation. Record corrections for the calibration stats.
+  For each calibrated claim, mark one of:
+    ✅ 与官方文档一致
+    ❌ 矛盾 → 必须修正
+    ⚠️ 官方未提及 → 标注"实测发现，官方未记录"
+  踩坑记录反问：是 AWS 限制还是自己操作问题？
 
 Step C: Write Article
-  Write the full article following the 10 mandatory sections below.
+  Write the full article following the 11 mandatory sections below.
+  Article language: 中文 for all headings and body text.
   ALL API responses, error messages, performance numbers, and model IDs MUST come from
   the read_execute_results evidence (actual stdout/stderr).
   NEVER generate API response examples from LLM memory.
@@ -121,48 +127,83 @@ Step E: Save and Preview
   Do NOT call git_push (publishing is only triggered via /tasks/{id}/approve).
 
 ═══════════════════════════════════════════════════════════
-10 MANDATORY ARTICLE SECTIONS — every article must have all 10
+11 MANDATORY ARTICLE SECTIONS — every article must have all 11
 ═══════════════════════════════════════════════════════════
 
-1. !!! info "Lab 信息" admonition at the very start:
+1. # 中文标题（H1）
+   动词开头，突出核心发现或动作。
+   ✅ "Amazon Bedrock AgentCore Runtime：InvokeAgentRuntimeCommand Shell 命令执行实战"
+   ❌ "How to use InvokeAgentRuntimeCommand"（不用英文标题）
+   ❌ "InvokeAgentRuntimeCommand"（太短，没有信息量）
+
+2. !!! info "Lab 信息" admonition（紧跟 H1）:
    !!! info "Lab 信息"
-       - **难度**：中级
+       - **难度**：⭐ 入门 / ⭐⭐ 中级 / ⭐⭐⭐ 高级
        - **预计时间**：XX 分钟
-       - **预计费用**：$X.XX
+       - **预计费用**：$X.XX（含清理）
        - **推荐区域**：us-east-1
        - **最后验证**：YYYY-MM-DD
 
-2. ## 核心概念
-   Parameter overview table or version comparison table.
+3. ## 背景
+   3-5 句话讲清楚：之前的痛点 → 这个功能怎么解决 → 为什么读者应该关注。
+   不要照搬 What's New 公告，用自己的话重新组织。
 
-3. Step sections (## Step 1, ## Step 2, etc.)
-   Each Step's FIRST code block must be AWS CLI (```bash).
-   Each Step MUST end with a **发现** line. Format: **发现**：内容 or **发现:** 内容 (colon inside or outside bold are both acceptable).
-   Minimum 3 Steps = minimum 3 **发现** blocks.
+4. ## 前置条件
+   AWS 账号要求、CLI 版本、其他工具依赖。
+   如果 IAM 权限较复杂，提供最小权限 Policy JSON（用 <details> 折叠）。
 
-4. ## 测试结果
-   Summary table with one row per Step (test ID, name, result, key measurement).
+5. ## 核心概念
+   一张"关键参数/变化一览表"。
+   让读者在动手之前建立全局认知：这东西有什么、能做什么、有什么限制。
 
-5. !!! warning "踩坑 N: title" admonitions
-   One warning admonition per verified pitfall from execute_result.pitfalls.
-   Only include AWS product limitations that all users would encounter.
+6. ## 动手实践（Step sections）
+   格式：## Step N: 面向读者的中文操作描述
+   ⚠️ 标题规则（强制）：
+     - 标题中不得出现内部测试编号（T0, T1, T2...），只用 Step 序号
+     - 标题应面向读者描述操作目的，例如 "Step 2: 基础命令执行" 而非 "Step 2: T1 — echo hello world"
+     - 标题用中文
+   每个 Step 的第一个代码块必须是 AWS CLI（```bash）。
+   每个 Step 必须以 **发现** 结尾。格式：**发现**：内容
+   最少 3 个 Step = 最少 3 个 **发现**。
+   Step 类型建议：
+     - Step 1: 准备环境
+     - Step 2: 核心功能验证
+     - Step 3: 对比实验（新 vs 旧、A vs B、有效 vs 无效）
+     - Step 4: 边界与探索性测试（无效值、边界值、未文档化参数）
+   测试结果表中的每一行，都必须在某个 Step 中有对应的操作和输出。不允许"有结论无过程"。
+
+7. ## 测试结果
+   Summary table with one row per Step.
+   列：# | 测试场景 | 结果 | 关键数据 | 备注
+   ⚠️ 测试场景列用读者友好的描述，不用内部测试编号。
+
+8. ## 踩坑记录（!!! warning admonitions）
+   ⚠️ 踩坑分类规则：
+   ✅ 进入文章：AWS 产品限制（经 aws-knowledge 确认）、官方未记录的行为、所有读者都可能遇到的问题
+   ❌ 不进入文章：自己代码的 bug、环境配置问题、一次性的网络/权限问题
+   判断标准：这个坑是不是所有用这个 AWS 功能的读者都可能遇到？
    Each warning MUST include the actual error message from stdout/stderr.
    Do NOT use speculative language (可能会, 有时会, 也许, might, may cause).
+   每个踩坑问三个问题：
+     1. 这对读者的生产系统意味着什么？
+     2. 如果读者不知道这个，最坏情况是什么？
+     3. 这个发现值得用 !!! warning 还是 !!! info？
 
-6. ## 费用明细
-   Cost breakdown table with service, operation, and cost.
+9. ## 费用明细
+   Cost breakdown table: 资源 | 单价 | 用量 | 费用。
+   纯 API 调用类标注 "< $0.01" 或 "< $0.10" 即可。
 
-7. ## 清理资源
-   Include a !!! danger admonition warning about resource costs if not cleaned up.
-   List specific cleanup commands.
+10. ## 清理资源
+    Include a !!! danger admonition warning about resource costs if not cleaned up.
+    清理顺序：先删依赖资源，再删基础资源。
+    VPC 相关：先检查 ENI 残留（describe-network-interfaces --filters group-id），再删 SG/子网。
+    List specific cleanup commands.
 
-8. ## IAM 权限
-   Minimal IAM policy needed to reproduce this lab.
+11. ## 结论与建议
+    不能只是"总结"，必须给读者可操作的建议。
+    至少包含一项：场景化推荐表 / 选型建议 / 升级建议 / 生产注意事项。
 
-9. ## 结论与建议
-   Scenario-based recommendation table.
-
-10. ## 参考链接（强制章节，必须包含以下内容）：
+12. ## 参考链接（强制章节，必须包含以下内容）：
     - AWS What's New 原文链接（从 research_result 的 url 字段获取）
     - AWS 官方文档链接（从 aws_knowledge_read_publish 的查询结果中提取，至少 2 个）
     - 格式：`- [链接标题](URL)`
@@ -282,7 +323,7 @@ def run_publish(task_id: str, research_result: dict, execute_result: dict) -> di
         RuntimeError: If the agent response cannot be parsed as JSON.
     """
     bedrock_model = BedrockModel(
-        model_id="us.anthropic.claude-sonnet-4-6",
+        model_id="global.anthropic.claude-sonnet-4-6",
         boto_client_config=BEDROCK_CONFIG,
     )
     agent = Agent(
