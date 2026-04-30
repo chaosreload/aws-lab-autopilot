@@ -10,6 +10,8 @@ from botocore.config import Config
 from strands import Agent
 from strands.models.bedrock import BedrockModel
 
+from src.autopilot.aws_session import get_boto3_session
+
 from src.agents.execute.tools import (
     aws_cli_execute,
     aws_knowledge_read,
@@ -310,6 +312,7 @@ def run_execute(task_id: str, research_result: dict) -> dict:
     bedrock_model = BedrockModel(
         model_id="global.anthropic.claude-sonnet-4-6",
         boto_client_config=BEDROCK_CONFIG,
+        boto_session=get_boto3_session(),
     )
     agent = Agent(
         model=bedrock_model,

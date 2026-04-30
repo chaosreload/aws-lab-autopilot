@@ -7,6 +7,8 @@ import logging
 import os
 
 import boto3
+
+from src.autopilot.aws_session import DEFAULT_REGION, get_boto3_session
 from strands import tool
 
 from src.aws.knowledge import (
@@ -76,7 +78,7 @@ def list_bedrock_models(output_modality: str = None, provider: str = None) -> st
     Returns:
         JSON string with list of models including modelId, modelName, status, and modalities.
     """
-    client = boto3.client("bedrock", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
+    client = get_boto3_session().client("bedrock", region_name=os.environ.get("AWS_DEFAULT_REGION", DEFAULT_REGION))
     kwargs = {}
     if output_modality:
         kwargs["byOutputModality"] = output_modality
@@ -111,7 +113,7 @@ def write_notes(task_id: str, content: str) -> str:
     if not bucket:
         raise RuntimeError("S3_BUCKET environment variable is not set")
     key = f"tasks/{task_id}/notes.md"
-    s3 = boto3.client("s3")
+    s3 = get_boto3_session().client("s3")
     s3.put_object(Bucket=bucket, Key=key, Body=content.encode("utf-8"), ContentType="text/markdown")
     s3_path = f"s3://{bucket}/{key}"
     logger.info("Wrote research notes to %s", s3_path)

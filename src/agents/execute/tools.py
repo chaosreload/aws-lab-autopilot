@@ -9,6 +9,8 @@ import subprocess
 import time
 
 import boto3
+
+from src.autopilot.aws_session import get_boto3_session
 from strands import tool
 
 from src.agents.execute.safety_guard import SafetyGuard
@@ -135,7 +137,7 @@ def write_execute_log(task_id: str, round_name: str, content: str, fmt: str) -> 
     key = f"tasks/{task_id}/evidence/{round_name}-log.{fmt}"
     content_type = "text/markdown" if fmt == "md" else "application/json"
 
-    s3 = boto3.client("s3")
+    s3 = get_boto3_session().client("s3")
     s3.put_object(
         Bucket=bucket,
         Key=key,
