@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any, Optional
 
 import boto3
@@ -52,6 +53,30 @@ def _marshal(data: dict) -> dict:
 
 def _unmarshal(item: dict) -> dict:
     return {k: _deserializer.deserialize(v) for k, v in item.items()}
+
+
+def _to_ddb_compatible(value: Any) -> Any:
+    """Recursively convert a value into a DynamoDB-serializable shape.
+
+    DynamoDB's TypeSerializer refuses Python float and bans empty string for
+    String attributes in older APIs. We normalize ahead of time:
+      - float -> Decimal (DDB stores as Number; Stage 1 budget_limit_usd / ttl_hours need this)
+      - dict / list: recurse
+      - everything else: return as-is
+
+    NaN / Infinity become "0" Decimals to avoid blowing up the request;
+    Research Agent should never produce those but we defensively guard here.
+    """
+    if isinstance(value, float):
+        # Decimal(float) introduces binary precision noise; go through str().
+        if value != value or value in (float("inf"), float("-inf")):
+            return Decimal("0")
+        return Decimal(str(value))
+    if isinstance(value, dict):
+        return {k: _to_ddb_compatible(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_to_ddb_compatible(v) for v in value]
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -166,8 +191,15 @@ def heartbeat(
 
 def save_research_result(task_id: str, result: dict) -> None:
     """Persist full ResearchResult dict under `research_result` attribute,
-    plus extract a few top-level convenience fields for fast filtering."""
+    plus extract a few top-level convenience fields for fast filtering.
+
+    Stage 1: also persists `environment` sub-dict at top level and promotes
+    a handful of environment fields (region, region_reason, budget_limit_usd,
+    tag_strategy) so downstream EventBridge / orphan scanner / filters can
+    query them without unpacking nested maps.
+    """
     now = _now_iso()
+    result = _to_ddb_compatible(result)
     names = {
         "#rr": "research_result",
         "#ua": "updated_at",
@@ -188,14 +220,38 @@ def save_research_result(task_id: str, result: dict) -> None:
             values[val_alias] = _serializer.serialize(result[key])
             set_parts.append(f"{alias} = {val_alias}")
 
-    if "region" in result and result["region"]:
+    # Stage 1 environment promotion
+    env = result.get("environment") or {}
+    # region / region_reason: prefer environment.*, fall back to top-level
+    # (Stage 0 used to emit them at top level; keep the fallback so an older
+    # Research Agent output still round-trips without losing data).
+    region = env.get("region") or result.get("region")
+    region_reason = env.get("region_reason") or result.get("region_reason")
+    if region:
         names["#reg"] = "region"
-        values[":reg"] = {"S": result["region"]}
+        values[":reg"] = {"S": region}
         set_parts.append("#reg = :reg")
-    if "region_reason" in result and result["region_reason"]:
+    if region_reason:
         names["#rreg"] = "region_reason"
-        values[":rreg"] = {"S": result["region_reason"]}
+        values[":rreg"] = {"S": region_reason}
         set_parts.append("#rreg = :rreg")
+
+    if env:
+        names["#env"] = "environment"
+        values[":env"] = _serializer.serialize(env)
+        set_parts.append("#env = :env")
+
+        budget = env.get("budget_limit_usd")
+        if budget is not None:
+            names["#bdg"] = "budget_limit_usd"
+            values[":bdg"] = _serializer.serialize(budget)
+            set_parts.append("#bdg = :bdg")
+
+        tag_strategy = env.get("tag_strategy")
+        if tag_strategy:
+            names["#tag"] = "tag_strategy"
+            values[":tag"] = _serializer.serialize(tag_strategy)
+            set_parts.append("#tag = :tag")
 
     _client().update_item(
         TableName=TABLE_NAME,

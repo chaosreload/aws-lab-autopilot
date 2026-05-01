@@ -72,6 +72,11 @@ class TaskDetail(BaseModel):
     created_at: str
     updated_at: Optional[str] = None
     research_result: Optional[dict] = None
+    # Stage 1: full TestEnvironment sub-object (populated when verdict=go)
+    environment: Optional[dict] = None
+    # Promoted convenience fields from environment (Stage 1)
+    budget_limit_usd: Optional[float] = None
+    tag_strategy: Optional[dict] = None
     error: Optional[dict] = None
 
 
@@ -79,15 +84,24 @@ class TaskDetail(BaseModel):
 # Background worker
 # ---------------------------------------------------------------------------
 
-def _run_research_and_persist(task_id: str, url: str) -> None:
+def _run_research_and_persist(
+    task_id: str,
+    url: str,
+    aws_identity: Optional[dict] = None,
+) -> None:
     """Run Research Agent in a background thread, updating the task record as it
     progresses. Errors are captured into the error field so the GET endpoint
-    always has something actionable to show."""
+    always has something actionable to show.
+
+    aws_identity is the sts:GetCallerIdentity snapshot captured at submit time
+    (Stage 1 spec §3). Passed through to run_research so the Agent cannot
+    self-select a different account.
+    """
     try:
         task_store.update_status(task_id, "researching", phase="research", current_step="start")
         logger.info("task %s: research start url=%s", task_id, url)
 
-        result = run_research(task_id, url)
+        result = run_research(task_id, url, aws_identity=aws_identity)
 
         # Save full result plus promoted top-level fields
         task_store.save_research_result(task_id, result)
@@ -133,7 +147,7 @@ def create_task(req: CreateTaskRequest):
     item = task_store.create_task(req.url, aws_identity=identity)
     threading.Thread(
         target=_run_research_and_persist,
-        args=(item["task_id"], req.url),
+        args=(item["task_id"], req.url, identity),
         daemon=True,
     ).start()
     return CreateTaskResponse(
@@ -163,6 +177,9 @@ def get_task(task_id: str):
         "created_at": item.get("created_at", ""),
         "updated_at": item.get("updated_at"),
         "research_result": item.get("research_result"),
+        "environment": item.get("environment"),
+        "budget_limit_usd": item.get("budget_limit_usd"),
+        "tag_strategy": item.get("tag_strategy"),
         "error": item.get("error"),
     })
 

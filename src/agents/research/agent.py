@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from typing import Optional
 
 from botocore.config import Config
 from strands import Agent
@@ -42,7 +43,8 @@ Step 4: If verdict is "go" and the feature involves Bedrock models, call list_be
 Step 5: Design the test matrix following the Three Principles below.
 Step 6: Derive the minimal IAM Policy needed for the test matrix.
 Step 7: Estimate total execution time (include infrastructure wait times for infrastructure/mixed tasks).
-Step 8: Call write_notes to save your complete research notes to S3.
+Step 8: Build the TEST ENVIRONMENT object (see section below). Required when verdict=go.
+Step 9: Call write_notes to save your complete research notes to S3.
 
 ═══════════════════════════════════════════════════════════
 VERDICT CRITERIA
@@ -106,6 +108,79 @@ Every test item MUST include ALL of these fields:
   - "description": one-line summary of what the test verifies
 
 If the feature involves Bedrock models, you MUST call list_bedrock_models first and use the confirmed model_id in api_hints.
+
+═══════════════════════════════════════════════════════════
+TEST ENVIRONMENT — required when verdict="go"
+═══════════════════════════════════════════════════════════
+
+The "environment" object fully describes WHERE and HOW the test will run.
+It is consumed by the Execute Agent (Stage 2) to enforce region, account,
+tags, budget, cleanup TTL, and prerequisites.
+
+You will receive the caller's AWS identity in the prompt as
+  AWS Identity: {"Account": "...", "Arn": "...", "UserId": "..."}
+You MUST copy Account verbatim into environment.account_id — do NOT invent
+or guess an account id. If the identity is absent or incomplete, emit
+verdict="skip" and explain in task_type_reason.
+
+--- Region decision procedure ---
+1. Read the announcement body for region restrictions (e.g. "available in
+   us-east-1 only", "launching in 5 regions"). If present, pick one of those.
+2. If the announcement names concrete services/APIs/CFN types, call
+   aws_knowledge_region to cross-verify supported regions.
+3. Decision:
+   - Announcement restricts region  -> use a restricted region
+   - Announcement has no restriction -> default to us-east-1
+   - aws_knowledge_region errors / returns empty -> default to us-east-1,
+     and note "tool returned no data; defaulting" in region_reason
+4. region MUST be in the whitelist {us-east-1, us-west-2, ap-southeast-1}.
+   If the only allowed region falls outside the whitelist, set
+   region="us-east-1" and region_reason must explain the fallback.
+
+region_reason format: ONE line, <=200 chars, MUST cite evidence.
+  Good: "announcement §2 says available in us-west-2 only"
+  Good: "aws_knowledge_region returned [us-east-1, us-west-2, eu-west-1]; picked us-east-1 as default"
+  Bad: "selected us-east-1" (no evidence)
+  Bad: "" (empty)
+
+--- tag_strategy (exact 3 keys are MANDATORY) ---
+You MUST emit these three keys verbatim:
+  "autopilot:task_id": "<task_id from prompt>"
+  "autopilot:stage":   "execute"
+  "autopilot:owner":   "archie"
+You MAY add extra descriptive keys (e.g. "autopilot:service": "bedrock")
+but the 3 above are non-negotiable.
+
+--- budget_limit_usd (USD, static estimate) ---
+  task_type=api_call          -> budget <= 1
+  task_type=infrastructure    -> budget <= 20
+  task_type=mixed             -> budget <= 20  (treat as infrastructure)
+  estimated_execution_minutes > 180 (long-running) -> budget <= 100
+If your estimate would exceed the ceiling, you MUST shrink the plan
+(fewer tests, smaller instance class, shorter TTL) and re-emit.
+
+--- cleanup_policy ---
+  ttl_hours by task_type:
+    api_call         -> ttl_hours <= 0.5
+    infrastructure   -> ttl_hours <= 4
+    long-running     -> ttl_hours <= 8 (must also note justification in task_type_reason)
+  on_failure: "terminate_all" (default) | "preserve_for_debug" | "ask_human"
+  orphan_scan: true (default, let Gap 9 scanner see it) | false
+
+--- prerequisites (list; may be empty) ---
+Only these 3 types are supported in Stage 1. Emit exactly these shapes:
+  {"type": "bedrock_model_access", "description": "Claude Opus 4.7 available",
+   "params": {"model_id": "global.anthropic.claude-opus-4-7"}}
+  {"type": "service_quota", "description": "Running On-Demand G instances quota",
+   "params": {"service": "ec2", "quota_code": "L-DB2E81BA", "required": 4}}
+  {"type": "bucket_exists", "description": "artifacts bucket reused across tasks",
+   "params": {"bucket_name": "autopilot-artifacts-us-east-1"}}
+If the test touches Bedrock, MUST include at least one bedrock_model_access.
+
+--- vpc_preference ---
+  "none"              -> pure API calls, no VPC
+  "default_vpc"       -> use the account's default VPC
+  "lab_vpc_required"  -> Execute will create a purpose-built lab VPC
 
 ═══════════════════════════════════════════════════════════
 NOTES FORMAT (write_notes)
@@ -182,7 +257,31 @@ Return ONLY a JSON object (no ```json wrapper, no extra text):
     "Statement": [...]
   },
   "services": ["bedrock-runtime"],
-  "estimated_execution_minutes": 10
+  "estimated_execution_minutes": 10,
+  "environment": {
+    "region": "us-east-1",
+    "region_reason": "announcement has no region restriction; defaulting per whitelist policy",
+    "account_id": "<copy from AWS Identity in prompt>",
+    "vpc_preference": "none",
+    "tag_strategy": {
+      "autopilot:task_id": "<task_id from prompt>",
+      "autopilot:stage": "execute",
+      "autopilot:owner": "archie"
+    },
+    "budget_limit_usd": 1.0,
+    "cleanup_policy": {
+      "ttl_hours": 0.5,
+      "on_failure": "terminate_all",
+      "orphan_scan": true
+    },
+    "prerequisites": [
+      {
+        "type": "bedrock_model_access",
+        "description": "Claude Opus 4.7 on-demand in us-east-1",
+        "params": {"model_id": "global.anthropic.claude-opus-4-7"}
+      }
+    ]
+  }
 }
 
 If verdict is "skip", return:
@@ -194,7 +293,8 @@ If verdict is "skip", return:
   "test_matrix": [],
   "iam_policy": {},
   "services": [],
-  "estimated_execution_minutes": 0
+  "estimated_execution_minutes": 0,
+  "environment": null
 }
 """
 
@@ -215,6 +315,10 @@ _DEFAULTS = {
     "iam_policy": {},
     "services": [],
     "estimated_execution_minutes": 0,
+    # Stage 1: environment is required when verdict=go, null when skip.
+    # Post-parser in api layer is responsible for downgrading verdict=go
+    # with missing environment into needs_human (spec §8).
+    "environment": None,
 }
 
 
@@ -276,19 +380,34 @@ def _parse_json_response(text: str) -> dict:
         return _strip_log_lines_and_parse(text[brace_pos:])
 
 
-def run_research(task_id: str, url: str) -> dict:
+def run_research(
+    task_id: str,
+    url: str,
+    aws_identity: Optional[dict] = None,
+) -> dict:
     """Run the Research Agent to evaluate an AWS What's New URL.
 
     Args:
         task_id: Unique task identifier.
         url: AWS What's New announcement URL.
+        aws_identity: sts:GetCallerIdentity-shaped dict (Account/Arn/UserId
+            at minimum). When None, falls back to aws_session.who_am_i().
+            The Account field is injected into the Agent prompt and MUST
+            end up verbatim in environment.account_id; the Agent is NOT
+            allowed to pick its own account.
 
     Returns:
-        ResearchResult dict with verdict, test_matrix, iam_policy, etc.
+        ResearchResult dict with verdict, test_matrix, iam_policy, and (when
+        verdict=go) a complete environment sub-object.
 
     Raises:
         RuntimeError: If the agent response cannot be parsed as JSON.
     """
+    if aws_identity is None:
+        # Lazy import to avoid circular dependency at module load time.
+        from src.autopilot.aws_session import who_am_i
+        aws_identity = who_am_i()
+
     bedrock_model = BedrockModel(
         model_id="global.anthropic.claude-opus-4-6-v1",
         boto_client_config=BEDROCK_CONFIG,
@@ -299,11 +418,23 @@ def run_research(task_id: str, url: str) -> dict:
         tools=TOOLS,
     )
 
+    identity_line = json.dumps(
+        {
+            "Account": aws_identity.get("Account", ""),
+            "Arn": aws_identity.get("Arn", ""),
+            "UserId": aws_identity.get("UserId", ""),
+        },
+        separators=(",", ":"),
+    )
+
     prompt = (
         f"Task ID: {task_id}\n"
-        f"AWS What's New URL: {url}\n\n"
+        f"AWS What's New URL: {url}\n"
+        f"AWS Identity: {identity_line}\n\n"
         "Please evaluate this announcement following the workflow steps. "
-        "Return your final answer as a JSON object."
+        "Return your final answer as a JSON object. "
+        "If verdict=go, the 'environment' field is REQUIRED and its account_id "
+        "MUST equal the Account value above verbatim."
     )
 
     result = agent(prompt)
