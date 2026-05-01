@@ -319,10 +319,149 @@ _DEFAULTS = {
     # Post-parser in api layer is responsible for downgrading verdict=go
     # with missing environment into needs_human (spec §8).
     "environment": None,
+    # Stage 1 spec §5/§8: post-parser appends human-readable sanitization
+    # notes here so they surface in DDB + GET /tasks/{id}.
+    "post_parser_warnings": [],
 }
 
 
 _LOG_LINE_RE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+ ")
+
+
+# Kept in sync with src.common.models.REGION_WHITELIST. Duplicated here to
+# avoid importing the pydantic model inside this module (agent.py is imported
+# from the API hot path; models.py already re-exports these constants).
+_REGION_WHITELIST = {"us-east-1", "us-west-2", "ap-southeast-1"}
+_MANDATORY_TAG_KEYS = {"autopilot:task_id", "autopilot:stage", "autopilot:owner"}
+
+
+def _apply_post_parser(parsed: dict, aws_identity: dict) -> dict:
+    """Sanitize Agent JSON output before the caller persists it.
+
+    Implements Stage 1 spec §5 (decision interception) and §8 (backward compat
+    / downgrade). Mutates and returns `parsed`. Appends human-readable
+    sanitization notes to `parsed["post_parser_warnings"]` so they surface in
+    DDB + GET /tasks/{id}.
+
+    Rules (in order):
+      1. §5.1 — environment.account_id MUST match aws_identity["Account"];
+         mismatch -> overwrite with the canonical value, warn.
+      2. §5.2 — environment.region MUST be in _REGION_WHITELIST; otherwise
+         fall back to us-east-1 and annotate region_reason.
+      3. §5 (extension) — tag_strategy MUST contain the 3 mandatory keys;
+         insert any missing ones with sensible defaults so downstream
+         pydantic validation passes.
+      4. §8 — verdict=go with missing / structurally bad environment
+         downgrades to verdict=needs_human. The original problematic
+         environment is preserved under `_rejected_environment` for audit.
+    """
+    warnings: list[str] = list(parsed.get("post_parser_warnings") or [])
+
+    def warn(msg: str) -> None:
+        warnings.append(msg)
+        logger.warning("post-parser: %s", msg)
+
+    expected_account = str(aws_identity.get("Account") or "").strip()
+
+    env = parsed.get("environment")
+
+    # Fast path: skip / needs_human / no-environment results are left alone,
+    # except we still surface that environment is missing so callers can
+    # decide. A verdict=go without environment triggers the downgrade below.
+    if isinstance(env, dict):
+        # Rule 1: account_id binding
+        if expected_account:
+            current_account = str(env.get("account_id") or "").strip()
+            if current_account != expected_account:
+                warn(
+                    f"environment.account_id {current_account!r} != caller identity "
+                    f"Account {expected_account!r}; overriding"
+                )
+                env["account_id"] = expected_account
+
+        # Rule 2: region whitelist
+        current_region = env.get("region")
+        if current_region not in _REGION_WHITELIST:
+            prior_reason = env.get("region_reason") or ""
+            env["region"] = "us-east-1"
+            suffix = " (sanitized by post-parser: original region not in whitelist)"
+            if suffix not in prior_reason:
+                # Keep reason <=200 chars per spec §2; truncate if necessary.
+                new_reason = (prior_reason + suffix).strip()
+                if len(new_reason) > 200:
+                    new_reason = new_reason[:200]
+                env["region_reason"] = new_reason
+            warn(
+                f"environment.region {current_region!r} not in whitelist "
+                f"{sorted(_REGION_WHITELIST)}; forced to us-east-1"
+            )
+
+        # Rule 3: mandatory tag keys
+        tag_strategy = env.get("tag_strategy")
+        if not isinstance(tag_strategy, dict):
+            tag_strategy = {}
+            env["tag_strategy"] = tag_strategy
+        task_id = parsed.get("task_id") or ""  # populated by run_research for audit
+        defaults = {
+            "autopilot:task_id": task_id or tag_strategy.get("autopilot:task_id") or "",
+            "autopilot:stage": "execute",
+            "autopilot:owner": "archie",
+        }
+        missing = _MANDATORY_TAG_KEYS - set(tag_strategy.keys())
+        if missing:
+            for key in missing:
+                tag_strategy[key] = defaults[key]
+            warn(
+                f"tag_strategy missing mandatory keys {sorted(missing)}; "
+                "inserted defaults"
+            )
+        # Force owner to archie even if Agent emitted something else.
+        if tag_strategy.get("autopilot:owner") != "archie":
+            warn(
+                f"tag_strategy autopilot:owner {tag_strategy.get('autopilot:owner')!r} "
+                "forced to 'archie'"
+            )
+            tag_strategy["autopilot:owner"] = "archie"
+        # Ensure task_id tag is actually the caller's task_id when we know it.
+        if task_id and tag_strategy.get("autopilot:task_id") != task_id:
+            warn(
+                f"tag_strategy autopilot:task_id "
+                f"{tag_strategy.get('autopilot:task_id')!r} != prompt task_id "
+                f"{task_id!r}; overriding"
+            )
+            tag_strategy["autopilot:task_id"] = task_id
+
+    # Rule 4: §8 downgrade gate.
+    # Only trigger the downgrade for verdict=go where environment is missing
+    # or so structurally bad that pydantic will refuse it. We validate by
+    # attempting to build a TestEnvironment — if that throws, we preserve
+    # the rejected payload and emit needs_human.
+    if parsed.get("verdict") == "go":
+        needs_downgrade_reason: Optional[str] = None
+
+        if not isinstance(env, dict):
+            needs_downgrade_reason = "environment missing or not a dict"
+        else:
+            try:
+                # Local import keeps cold-path cost off the module import.
+                from src.common.models import TestEnvironment
+                TestEnvironment.model_validate(env)
+            except Exception as exc:  # noqa: BLE001
+                needs_downgrade_reason = f"environment failed pydantic validation: {exc}"
+
+        if needs_downgrade_reason:
+            warn(
+                f"verdict=go downgraded to needs_human (Stage 1 spec §8): "
+                f"{needs_downgrade_reason}"
+            )
+            parsed["_rejected_environment"] = env
+            parsed["environment"] = None
+            parsed["verdict"] = "needs_human"
+
+    if warnings:
+        parsed["post_parser_warnings"] = warnings
+
+    return parsed
 
 
 def _strip_log_lines_and_parse(text: str) -> dict:
@@ -444,11 +583,22 @@ def run_research(
         parsed = _parse_json_response(response_text)
     except (json.JSONDecodeError, ValueError) as exc:
         logger.error("Failed to parse Research Agent JSON response: %s", exc)
+        # Stage 1 spec §8: parse failure is a hard fail, not a downgrade —
+        # raising here makes the worker put the task into status=failed with
+        # an explicit error message, which is more actionable than silently
+        # rewriting to needs_human with an empty result.
         raise RuntimeError(f"Research Agent returned unparseable response: {exc}") from exc
 
     # Apply defaults for any missing fields
     for key, default in _DEFAULTS.items():
         if key not in parsed:
             parsed[key] = default
+
+    # Stash task_id so post-parser can enforce tag_strategy.autopilot:task_id
+    # without needing another argument.
+    parsed.setdefault("task_id", task_id)
+
+    # Stage 1 decision interception (spec §5 + §8).
+    parsed = _apply_post_parser(parsed, aws_identity)
 
     return parsed

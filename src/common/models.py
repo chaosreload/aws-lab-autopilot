@@ -20,6 +20,10 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 class Verdict(str, Enum):
     GO = "go"
     SKIP = "skip"
+    # Stage 1 spec §8: post-parser downgrade target when Agent output is
+    # unusable (environment missing, whitelist sanitize failed, etc.).
+    # Agent MUST NOT emit this verdict itself; only the post-parser injects it.
+    NEEDS_HUMAN = "needs_human"
 
 
 class TaskState(str, Enum):
@@ -184,6 +188,9 @@ class ResearchResult(BaseModel):
 
     @model_validator(mode="after")
     def _environment_required_when_go(self) -> "ResearchResult":
+        # verdict=go  => environment MUST be present (spec §1)
+        # verdict=skip => environment MAY be None
+        # verdict=needs_human => environment MAY be None (post-parser downgrade, spec §8)
         if self.verdict == Verdict.GO and self.environment is None:
             raise ValueError(
                 "environment is required when verdict=go (Stage 1 spec §1)"

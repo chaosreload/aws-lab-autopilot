@@ -77,6 +77,8 @@ class TaskDetail(BaseModel):
     # Promoted convenience fields from environment (Stage 1)
     budget_limit_usd: Optional[float] = None
     tag_strategy: Optional[dict] = None
+    # Stage 1 spec §5/§8: post-parser sanitization trail
+    post_parser_warnings: Optional[list[str]] = None
     error: Optional[dict] = None
 
 
@@ -107,7 +109,16 @@ def _run_research_and_persist(
         task_store.save_research_result(task_id, result)
 
         verdict = result.get("verdict", "skip")
-        next_status = "research_done" if verdict == "go" else "skipped"
+        # Stage 1 status mapping:
+        #   go           -> research_done  (ready for Execute)
+        #   skip         -> skipped        (nothing to do)
+        #   needs_human  -> needs_human    (post-parser downgraded; humans review)
+        _STATUS_BY_VERDICT = {
+            "go": "research_done",
+            "skip": "skipped",
+            "needs_human": "needs_human",
+        }
+        next_status = _STATUS_BY_VERDICT.get(verdict, "skipped")
         task_store.update_status(
             task_id,
             next_status,
@@ -115,10 +126,12 @@ def _run_research_and_persist(
             current_step="complete",
         )
         logger.info(
-            "task %s: research done verdict=%s notes=%s",
+            "task %s: research done verdict=%s status=%s notes=%s warnings=%d",
             task_id,
             verdict,
+            next_status,
             result.get("notes_path", ""),
+            len(result.get("post_parser_warnings") or []),
         )
     except Exception as exc:  # noqa: BLE001 — we want to catch everything here
         logger.exception("task %s: research failed", task_id)
@@ -180,6 +193,7 @@ def get_task(task_id: str):
         "environment": item.get("environment"),
         "budget_limit_usd": item.get("budget_limit_usd"),
         "tag_strategy": item.get("tag_strategy"),
+        "post_parser_warnings": item.get("post_parser_warnings"),
         "error": item.get("error"),
     })
 

@@ -220,6 +220,13 @@ def save_research_result(task_id: str, result: dict) -> None:
             values[val_alias] = _serializer.serialize(result[key])
             set_parts.append(f"{alias} = {val_alias}")
 
+    # Stage 1 §5/§8: promote post_parser_warnings to top level when non-empty
+    warnings = result.get("post_parser_warnings")
+    if warnings:
+        names["#ppw"] = "post_parser_warnings"
+        values[":ppw"] = _serializer.serialize(warnings)
+        set_parts.append("#ppw = :ppw")
+
     # Stage 1 environment promotion
     env = result.get("environment") or {}
     # region / region_reason: prefer environment.*, fall back to top-level
