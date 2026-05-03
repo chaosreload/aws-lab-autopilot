@@ -12,6 +12,37 @@ logger = logging.getLogger(__name__)
 MCP_ENDPOINT = "https://knowledge-mcp.global.api.aws"
 _TIMEOUT = 30
 
+# Mapping from short service codes (used by the research agent) to the exact
+# display names accepted by the aws___get_regional_availability MCP endpoint.
+SERVICE_DISPLAY_NAME: dict[str, str] = {
+    "bedrock": "Amazon Bedrock",
+    "lambda": "AWS Lambda",
+    "aurora": "Amazon Aurora",
+    "s3": "Amazon S3",
+    "ec2": "Amazon EC2",
+    "dynamodb": "Amazon DynamoDB",
+    "iam": "AWS Identity and Access Management (IAM)",
+    "sqs": "Amazon Simple Queue Service (SQS)",
+    "sns": "Amazon Simple Notification Service (SNS)",
+    "apigateway": "Amazon API Gateway",
+    "cloudfront": "Amazon CloudFront",
+    "cloudwatch": "Amazon CloudWatch",
+    "kms": "AWS Key Management Service (KMS)",
+    "stepfunctions": "AWS Step Functions",
+    "ecs": "Amazon Elastic Container Service (ECS)",
+    "eks": "Amazon Elastic Kubernetes Service (EKS)",
+    "rds": "Amazon RDS",
+    "sagemaker": "Amazon SageMaker AI",
+    "opensearch": "Amazon OpenSearch Service",
+    "bedrock-agent-runtime": "Amazon Bedrock Agents",
+    "secretsmanager": "AWS Secrets Manager",
+    "agentcore": "Amazon Agentcore",  # UNVERIFIED
+    "glue": "AWS Glue",
+    "athena": "Amazon Athena",
+    "kinesis": "Amazon Kinesis Data Streams",
+    "bedrock-runtime": "Amazon Bedrock",  # UNVERIFIED — no separate product entry found
+}
+
 
 def _call_mcp(method: str, params: dict) -> str:
     """Call a tool on the aws-knowledge MCP server and return the text content."""
@@ -74,12 +105,16 @@ def read_documentation(url: str, max_length: int = 10000) -> str:
 
 def get_regional_availability(service: str, regions: list[str]) -> dict:
     """Check regional availability for an AWS service via MCP."""
+    display_name = SERVICE_DISPLAY_NAME.get(service.lower())
+    if display_name is None:
+        display_name = service
+        logger.info("No SERVICE_DISPLAY_NAME mapping for %r; using raw value as filter", service)
     text = _call_mcp(
         "aws___get_regional_availability",
         {
             "resource_type": "product",
             "regions": regions,
-            "filters": [service],
+            "filters": [display_name],
         },
     )
     result = _unwrap_mcp_text(text)
